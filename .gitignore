@@ -1,0 +1,24 @@
+# AOSP checkout and build output
+.repo/
+out/
+.aosp/
+
+# Private/licensed Google Mobile Services inputs
+local-gms/
+gms-private/
+private/gms/
+
+# VM and release artifacts
+*.iso
+*.qcow2
+*.vdi
+*.vmdk
+*.raw
+*.img
+*.ova
+*.ovf
+
+# Local logs and temporary files
+*.log
+*.tmp
+.cache/
