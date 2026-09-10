@@ -17,18 +17,21 @@ REPORT="$UTM_REFERENCE_DIR/UTM-QEMU-DELTA.txt"
   exit 2
 }
 
-# Ensure both comparison endpoints exist locally without converting the
-# reference checkout into a moving branch.
-git -C "$QEMU_DIR" fetch --force --depth=1 origin \
+# The reference checkout begins shallow by design. Deepen enough to recover the
+# complete short post-release history so the audit does not silently report
+# only the head commit while still diffing the full endpoint trees.
+git -C "$QEMU_DIR" fetch --force --depth=64 origin \
   "$UTM_QEMU_RELEASE_REV" "$UTM_QEMU_HEAD_REV"
 
 base="$UTM_QEMU_RELEASE_REV"
 head="$UTM_QEMU_HEAD_REV"
+commit_count="$(git -C "$QEMU_DIR" rev-list --count "$base..$head")"
 
 {
   echo "UTM QEMU delta audit"
   echo "base=$base ($UTM_QEMU_RELEASE_TAG)"
   echo "head=$head ($UTM_QEMU_HEAD_BRANCH)"
+  echo "commit_count=$commit_count"
   echo
   echo "== Commits =="
   git -C "$QEMU_DIR" log --reverse --oneline "$base..$head"
@@ -46,6 +49,11 @@ head="$UTM_QEMU_HEAD_REV"
     | grep -E '^(ui/cocoa\.m$|ui/spice-display-metal\.m$|target/arm/|hw/arm/|docs/system/arm/)' \
     || true
 } > "$REPORT"
+
+[[ "$commit_count" -ge 1 ]] || {
+  echo "ERROR: UTM QEMU delta unexpectedly contains no commits" >&2
+  exit 3
+}
 
 cat "$REPORT"
 echo "UTM_QEMU_DELTA_AUDIT = PASS"
