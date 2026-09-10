@@ -7,6 +7,13 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+const HELP: &str = "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --qmp-port <port>  Local QMP control port, default 4444\n  --autostart        Start VM immediately after opening GUI\n  --help, -h         Show this help and exit\n  --version          Show version and exit\n";
+
+enum Startup {
+    Gui(AccessibleQemuApp),
+    Exit,
+}
+
 struct AccessibleQemuApp {
     qemu_binary: String,
     iso_path: String,
@@ -57,7 +64,7 @@ fn default_qemu_binary() -> String {
     }
 }
 
-fn app_from_args() -> AccessibleQemuApp {
+fn app_from_args() -> Startup {
     let mut app = AccessibleQemuApp::default();
     let mut args = env::args().skip(1);
 
@@ -103,15 +110,18 @@ fn app_from_args() -> AccessibleQemuApp {
             }
             "--autostart" => app.autostart_pending = true,
             "--help" | "-h" => {
-                println!(
-                    "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --qmp-port <port>  Local QMP control port, default 4444\n  --autostart        Start VM immediately after opening GUI\n"
-                );
+                print!("{HELP}");
+                return Startup::Exit;
+            }
+            "--version" => {
+                println!("AccessibleQEMU {}", env!("CARGO_PKG_VERSION"));
+                return Startup::Exit;
             }
             _ => {}
         }
     }
 
-    app
+    Startup::Gui(app)
 }
 
 fn read_qmp_response(reader: &mut BufReader<TcpStream>) -> Result<Value, String> {
@@ -353,42 +363,48 @@ impl AccessibleQemuApp {
             .num_columns(2)
             .spacing([16.0, 10.0])
             .show(ui, |ui| {
-                ui.label("QEMU executable");
+                let label = ui.label("QEMU executable");
                 ui.text_edit_singleline(&mut self.qemu_binary)
-                    .on_hover_text("Path or command name for qemu-system-x86_64");
+                    .on_hover_text("Path or command name for qemu-system-x86_64")
+                    .labelled_by(label.id);
                 ui.end_row();
 
-                ui.label("Android ISO path");
+                let label = ui.label("Android ISO path");
                 ui.text_edit_singleline(&mut self.iso_path)
-                    .on_hover_text("Path to the Accessible Android bootable ISO");
+                    .on_hover_text("Path to the Accessible Android bootable ISO")
+                    .labelled_by(label.id);
                 ui.end_row();
 
-                ui.label("Virtual disk path");
+                let label = ui.label("Virtual disk path");
                 ui.text_edit_singleline(&mut self.disk_path)
-                    .on_hover_text("Path to an existing QCOW2 virtual disk");
+                    .on_hover_text("Path to an existing QCOW2 virtual disk")
+                    .labelled_by(label.id);
                 ui.end_row();
 
-                ui.label("Memory");
+                let label = ui.label("Memory");
                 ui.add(
                     egui::Slider::new(&mut self.memory_mib, 1024..=32768)
                         .text("Memory in MiB")
                         .step_by(512.0),
-                );
+                )
+                .labelled_by(label.id);
                 ui.end_row();
 
-                ui.label("Processors");
+                let label = ui.label("Processors");
                 ui.add(
                     egui::Slider::new(&mut self.cpu_count, 1..=16)
                         .text("Virtual processor count"),
-                );
+                )
+                .labelled_by(label.id);
                 ui.end_row();
 
-                ui.label("QMP local port");
+                let label = ui.label("QMP local port");
                 ui.add(
                     egui::DragValue::new(&mut self.qmp_port)
                         .range(1024..=65535)
                         .speed(1.0),
-                );
+                )
+                .labelled_by(label.id);
                 ui.end_row();
             });
 
@@ -478,7 +494,10 @@ impl eframe::App for AccessibleQemuApp {
 }
 
 fn main() -> eframe::Result<()> {
-    let app = app_from_args();
+    let Startup::Gui(app) = app_from_args() else {
+        return Ok(());
+    };
+
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AccessibleQEMU",
