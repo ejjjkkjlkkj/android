@@ -2,7 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
+PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
+
 STAGE_DIR="$AOSP_DIR/vendor/accessibledroid/private-gms"
 
 "$ROOT_DIR/scripts/validate-gms-input.sh"
