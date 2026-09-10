@@ -76,6 +76,11 @@ BOARD_USES_SYSTEM_EXTIMAGE := true
 BOARD_SYSTEM_EXTIMAGE_FILE_SYSTEM_TYPE := ext4
 TARGET_COPY_OUT_SYSTEM_EXT := system_ext
 BOARD_USES_METADATA_PARTITION := true
+TARGET_USERIMAGES_USE_EXT4 := true
+BOARD_USERDATAIMAGE_FILE_SYSTEM_TYPE := ext4
+# Match config/vm.env. A fixed 8 GiB /data image keeps the first reproducible
+# 16 GiB VM disk deterministic; the installer can grow it on larger disks.
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 8589934592
 
 # Dynamic partitions. Sizes follow the proven 7 GiB virtual-device envelope,
 # while keeping system and vendor groups separate for future OTA evolution.
