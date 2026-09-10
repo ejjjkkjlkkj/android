@@ -57,3 +57,20 @@ jobs:
           grep -Fq "${GMS_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" device/accessibledroid/accessible_x86_64/AndroidProducts.mk
           grep -Fq 'LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"' scripts/build-pc-iso.sh
           echo "ANDROID_LUNCH_CONFIG = PASS (${ANDROID_RELEASE_CONFIG})"
+
+      - name: Validate Android 17 x86_64 kernel contract
+        run: |
+          set -euo pipefail
+          source config/kernel.env
+          test "$KERNEL_FAMILY" = "android17-6.18"
+          test "$KERNEL_ARCH" = "x86_64"
+          test "$KERNEL_BUILD_TARGET" = "//common:kernel_x86_64"
+          test "$KERNEL_DIST_TARGET" = "//common:kernel_x86_64_dist"
+          test "$KERNEL_IMAGE_NAME" = "bzImage"
+          grep -Fq 'TARGET_NO_KERNEL := false' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'TARGET_PREBUILT_KERNEL := device/accessibledroid/accessible_x86_64/prebuilt/kernel' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          if grep -R -n --exclude-dir=.git --exclude='*.md' 'source .*build.config.x86_64\|\. .*build.config.x86_64' scripts config device vendor; then
+            echo 'ERROR: legacy Android kernel build.config.x86_64 sourcing is forbidden.' >&2
+            exit 1
+          fi
+          echo "ANDROID_KERNEL_CONTRACT = PASS ($KERNEL_FAMILY $KERNEL_ARCH)"
