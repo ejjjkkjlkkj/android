@@ -1,0 +1,9 @@
+# Deterministic serial milestones for automated VM validation.
+# These messages are emitted by Android init itself and therefore prove that the
+# boot reached specific Android userspace phases rather than only GRUB/kernel.
+
+on post-fs-data
+    write /dev/ttyS0 ACCESSIBLE_ANDROID_POST_FS_DATA=PASS
+
+on property:sys.boot_completed=1
+    write /dev/ttyS0 ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS
