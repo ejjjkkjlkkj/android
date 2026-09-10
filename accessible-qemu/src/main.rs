@@ -224,98 +224,107 @@ impl AccessibleQemuApp {
             }
         }
     }
+
+    fn render(&mut self, ui: &mut egui::Ui) {
+        ui.heading("AccessibleQEMU");
+        ui.label("Accessibility-first graphical virtual machine manager");
+        ui.separator();
+
+        ui.heading("Virtual machine configuration");
+        ui.add_space(8.0);
+
+        egui::Grid::new("vm_configuration_grid")
+            .num_columns(2)
+            .spacing([16.0, 10.0])
+            .show(ui, |ui| {
+                ui.label("QEMU executable");
+                ui.text_edit_singleline(&mut self.qemu_binary)
+                    .on_hover_text("Path or command name for qemu-system-x86_64");
+                ui.end_row();
+
+                ui.label("Android ISO path");
+                ui.text_edit_singleline(&mut self.iso_path)
+                    .on_hover_text("Path to the Accessible Android bootable ISO");
+                ui.end_row();
+
+                ui.label("Virtual disk path");
+                ui.text_edit_singleline(&mut self.disk_path)
+                    .on_hover_text("Path to an existing QCOW2 virtual disk");
+                ui.end_row();
+
+                ui.label("Memory");
+                ui.add(
+                    egui::Slider::new(&mut self.memory_mib, 1024..=32768)
+                        .text("Memory in MiB")
+                        .step_by(512.0),
+                );
+                ui.end_row();
+
+                ui.label("Processors");
+                ui.add(
+                    egui::Slider::new(&mut self.cpu_count, 1..=16)
+                        .text("Virtual processor count"),
+                );
+                ui.end_row();
+            });
+
+        ui.add_space(16.0);
+        ui.heading("Virtual machine controls");
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(
+                    self.child.is_none(),
+                    egui::Button::new("Start virtual machine"),
+                )
+                .clicked()
+            {
+                self.start_vm();
+            }
+
+            if ui
+                .add_enabled(
+                    self.child.is_some(),
+                    egui::Button::new("Stop virtual machine"),
+                )
+                .clicked()
+            {
+                self.stop_vm();
+            }
+
+            if ui.button("Refresh status").clicked() {
+                self.refresh_process_state();
+                if self.child.is_some() {
+                    self.status = "Virtual machine is running.".to_owned();
+                } else if !self.status.starts_with("Unable") {
+                    self.status = "Virtual machine is stopped.".to_owned();
+                }
+            }
+        });
+
+        ui.add_space(16.0);
+        ui.heading("Status");
+        ui.label(&self.status);
+
+        ui.add_space(16.0);
+        ui.heading("Keyboard navigation");
+        ui.label(
+            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust sliders, and Enter or Space to activate the focused control.",
+        );
+    }
 }
 
 impl eframe::App for AccessibleQemuApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh_process_state();
 
         if self.autostart_pending {
             self.autostart_pending = false;
             self.start_vm();
         }
+    }
 
-        egui::TopBottomPanel::top("application_header").show(ctx, |ui| {
-            ui.heading("AccessibleQEMU");
-            ui.label("Accessibility-first graphical virtual machine manager");
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Virtual machine configuration");
-            ui.add_space(8.0);
-
-            egui::Grid::new("vm_configuration_grid")
-                .num_columns(2)
-                .spacing([16.0, 10.0])
-                .show(ui, |ui| {
-                    ui.label("QEMU executable");
-                    ui.text_edit_singleline(&mut self.qemu_binary)
-                        .on_hover_text("Path or command name for qemu-system-x86_64");
-                    ui.end_row();
-
-                    ui.label("Android ISO path");
-                    ui.text_edit_singleline(&mut self.iso_path)
-                        .on_hover_text("Path to the Accessible Android bootable ISO");
-                    ui.end_row();
-
-                    ui.label("Virtual disk path");
-                    ui.text_edit_singleline(&mut self.disk_path)
-                        .on_hover_text("Path to an existing QCOW2 virtual disk");
-                    ui.end_row();
-
-                    ui.label("Memory");
-                    ui.add(
-                        egui::Slider::new(&mut self.memory_mib, 1024..=32768)
-                            .text("Memory in MiB")
-                            .step_by(512.0),
-                    );
-                    ui.end_row();
-
-                    ui.label("Processors");
-                    ui.add(
-                        egui::Slider::new(&mut self.cpu_count, 1..=16)
-                            .text("Virtual processor count"),
-                    );
-                    ui.end_row();
-                });
-
-            ui.add_space(16.0);
-            ui.heading("Virtual machine controls");
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled(self.child.is_none(), egui::Button::new("Start virtual machine"))
-                    .clicked()
-                {
-                    self.start_vm();
-                }
-
-                if ui
-                    .add_enabled(self.child.is_some(), egui::Button::new("Stop virtual machine"))
-                    .clicked()
-                {
-                    self.stop_vm();
-                }
-
-                if ui.button("Refresh status").clicked() {
-                    self.refresh_process_state();
-                    if self.child.is_some() {
-                        self.status = "Virtual machine is running.".to_owned();
-                    } else if !self.status.starts_with("Unable") {
-                        self.status = "Virtual machine is stopped.".to_owned();
-                    }
-                }
-            });
-
-            ui.add_space(16.0);
-            ui.heading("Status");
-            ui.label(&self.status);
-
-            ui.add_space(16.0);
-            ui.heading("Keyboard navigation");
-            ui.label(
-                "Use Tab and Shift+Tab to move between controls, arrow keys to adjust sliders, and Enter or Space to activate the focused control.",
-            );
-        });
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ui, |ui| self.render(ui));
     }
 }
 
