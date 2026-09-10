@@ -1,7 +1,9 @@
 param(
     [string]$Iso = "",
 
-    [string]$Disk = "$PSScriptRoot\..\.work\vm\accessible-android.qcow2",
+    [string]$Disk = "",
+
+    [switch]$Preinstalled,
 
     [string]$AccessibleUtmExe = "$PSScriptRoot\..\accessible-utm\target\release\accessible-utm.exe",
 
@@ -33,13 +35,26 @@ if ($Iso) {
     }
 }
 
-if ($Disk) {
-    $Disk = [System.IO.Path]::GetFullPath($Disk)
+if ($Preinstalled -and $Disk) {
+    throw 'Use either -Preinstalled for automatic discovery or -Disk for an explicit disk path, not both.'
 }
 
-if (-not $Iso -and -not $Disk) {
-    throw 'Provide -Iso, -Disk, or both.'
+if ($Preinstalled) {
+    $preinstalledRoot = Join-Path $repoRoot '.work\vm\preinstalled'
+    $candidate = Get-ChildItem -LiteralPath $preinstalledRoot -Filter 'AccessibleAndroid-17-*-x86_64.qcow2' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if (-not $candidate) {
+        throw "No preinstalled AccessibleAndroid 17 QCOW2 disk was found under $preinstalledRoot. Run the Android preinstalled build first."
+    }
+    $Disk = $candidate.FullName
+    $RequireExistingDisk = $true
 }
+
+if (-not $Disk) {
+    $Disk = Join-Path $repoRoot '.work\vm\accessible-android.qcow2'
+}
+$Disk = [System.IO.Path]::GetFullPath($Disk)
 
 if (-not (Test-Path -LiteralPath $AccessibleUtmExe -PathType Leaf)) {
     throw "AccessibleUTM executable not found: $AccessibleUtmExe. Build it with: cargo build --release --manifest-path accessible-utm/Cargo.toml"
@@ -61,7 +76,7 @@ if (-not $QemuExe -or -not (Test-Path -LiteralPath $QemuExe -PathType Leaf)) {
 }
 $QemuExe = [System.IO.Path]::GetFullPath($QemuExe)
 
-if ($Disk -and -not (Test-Path -LiteralPath $Disk -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $Disk -PathType Leaf)) {
     if ($RequireExistingDisk) {
         throw "Requested existing Android disk was not found: $Disk"
     }
@@ -93,17 +108,15 @@ if ($Disk -and -not (Test-Path -LiteralPath $Disk -PathType Leaf)) {
 $argsList = @(
     '--profile', 'accessible-android',
     '--arch', 'x86_64',
-    '--name', 'AccessibleAndroid',
+    '--name', 'AccessibleAndroid 17',
     '--qemu', $QemuExe,
     '--memory', $MemoryMiB,
-    '--cpus', $Cpus
+    '--cpus', $Cpus,
+    '--disk', $Disk
 )
 
 if ($Iso) {
     $argsList += @('--iso', $Iso)
-}
-if ($Disk) {
-    $argsList += @('--disk', $Disk)
 }
 if (-not $NoAutostart) {
     $argsList += '--autostart'
@@ -112,6 +125,7 @@ if (-not $NoAutostart) {
 Write-Host 'Starting AccessibleAndroid through AccessibleUTM Windows'
 Write-Host "REPO=$repoRoot"
 Write-Host "ACCESSIBLE_UTM=$AccessibleUtmExe"
+Write-Host "MODE=$(if ($Preinstalled) { 'PREINSTALLED' } elseif ($Iso) { 'ISO_INSTALL' } else { 'DISK_ONLY' })"
 Write-Host "ISO=$Iso"
 Write-Host "DISK=$Disk"
 Write-Host "QEMU=$QemuExe"
