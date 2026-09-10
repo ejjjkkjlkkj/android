@@ -1,7 +1,11 @@
 use eframe::egui;
+use serde_json::{json, Value};
 use std::env;
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 struct AccessibleQemuApp {
     qemu_binary: String,
@@ -9,6 +13,7 @@ struct AccessibleQemuApp {
     disk_path: String,
     memory_mib: u32,
     cpu_count: u32,
+    qmp_port: u16,
     status: String,
     child: Option<Child>,
     autostart_pending: bool,
@@ -22,6 +27,7 @@ impl Default for AccessibleQemuApp {
             disk_path: String::new(),
             memory_mib: 4096,
             cpu_count: 4,
+            qmp_port: 4444,
             status: "Stopped. Configure the virtual machine, then choose Start virtual machine."
                 .to_owned(),
             child: None,
@@ -86,10 +92,19 @@ fn app_from_args() -> AccessibleQemuApp {
                     }
                 }
             }
+            "--qmp-port" => {
+                if let Some(value) = args.next() {
+                    if let Ok(parsed) = value.parse::<u16>() {
+                        if parsed > 0 {
+                            app.qmp_port = parsed;
+                        }
+                    }
+                }
+            }
             "--autostart" => app.autostart_pending = true,
             "--help" | "-h" => {
                 println!(
-                    "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --autostart        Start VM immediately after opening GUI\n"
+                    "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --qmp-port <port>  Local QMP control port, default 4444\n  --autostart        Start VM immediately after opening GUI\n"
                 );
             }
             _ => {}
@@ -97,6 +112,24 @@ fn app_from_args() -> AccessibleQemuApp {
     }
 
     app
+}
+
+fn read_qmp_response(reader: &mut BufReader<TcpStream>) -> Result<Value, String> {
+    loop {
+        let mut line = String::new();
+        let bytes = reader
+            .read_line(&mut line)
+            .map_err(|error| format!("QMP read failed: {error}"))?;
+        if bytes == 0 {
+            return Err("QMP connection closed before a response was received.".to_owned());
+        }
+
+        let value: Value = serde_json::from_str(line.trim())
+            .map_err(|error| format!("Invalid QMP JSON response: {error}"))?;
+        if value.get("return").is_some() || value.get("error").is_some() {
+            return Ok(value);
+        }
+    }
 }
 
 impl AccessibleQemuApp {
@@ -131,7 +164,7 @@ impl AccessibleQemuApp {
             }
             Ok(None) => {}
             Err(error) => {
-                self.status = format!("Unable to query QEMU state: {error}");
+                self.status = format!("Unable to query QEMU process state: {error}");
             }
         }
     }
@@ -169,6 +202,13 @@ impl AccessibleQemuApp {
             .arg(self.memory_mib.to_string())
             .arg("-smp")
             .arg(self.cpu_count.to_string())
+            .arg("-qmp")
+            .arg(format!(
+                "tcp:127.0.0.1:{},server=on,wait=off",
+                self.qmp_port
+            ))
+            .arg("-monitor")
+            .arg("none")
             .arg("-device")
             .arg("virtio-rng-pci")
             .arg("-netdev")
@@ -196,7 +236,10 @@ impl AccessibleQemuApp {
         match command.spawn() {
             Ok(child) => {
                 self.child = Some(child);
-                self.status = "Virtual machine started. QEMU is running.".to_owned();
+                self.status = format!(
+                    "Virtual machine started. QMP control is available locally on port {}.",
+                    self.qmp_port
+                );
             }
             Err(error) => {
                 self.status = format!(
@@ -207,7 +250,7 @@ impl AccessibleQemuApp {
         }
     }
 
-    fn stop_vm(&mut self) {
+    fn force_stop_vm(&mut self) {
         let Some(mut child) = self.child.take() else {
             self.status = "Virtual machine is already stopped.".to_owned();
             return;
@@ -216,12 +259,85 @@ impl AccessibleQemuApp {
         match child.kill() {
             Ok(()) => {
                 let _ = child.wait();
-                self.status = "Virtual machine stopped.".to_owned();
+                self.status = "Virtual machine force-stopped.".to_owned();
             }
             Err(error) => {
-                self.status = format!("Unable to stop QEMU: {error}");
+                self.status = format!("Unable to force-stop QEMU: {error}");
                 self.child = Some(child);
             }
+        }
+    }
+
+    fn qmp_execute(&self, command: &str) -> Result<Value, String> {
+        if self.child.is_none() {
+            return Err("Virtual machine is not running.".to_owned());
+        }
+
+        let address = format!("127.0.0.1:{}", self.qmp_port);
+        let stream = TcpStream::connect(&address)
+            .map_err(|error| format!("Cannot connect to QMP at {address}: {error}"))?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("Cannot set QMP read timeout: {error}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("Cannot set QMP write timeout: {error}"))?;
+
+        let mut writer = stream
+            .try_clone()
+            .map_err(|error| format!("Cannot clone QMP socket: {error}"))?;
+        let mut reader = BufReader::new(stream);
+
+        let mut greeting = String::new();
+        reader
+            .read_line(&mut greeting)
+            .map_err(|error| format!("Cannot read QMP greeting: {error}"))?;
+        let greeting_json: Value = serde_json::from_str(greeting.trim())
+            .map_err(|error| format!("Invalid QMP greeting: {error}"))?;
+        if greeting_json.get("QMP").is_none() {
+            return Err("QMP server did not send a valid greeting.".to_owned());
+        }
+
+        writeln!(writer, "{}", json!({"execute": "qmp_capabilities"}))
+            .map_err(|error| format!("Cannot negotiate QMP capabilities: {error}"))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Cannot flush QMP capabilities request: {error}"))?;
+        let capability_response = read_qmp_response(&mut reader)?;
+        if let Some(error) = capability_response.get("error") {
+            return Err(format!("QMP capability negotiation failed: {error}"));
+        }
+
+        writeln!(writer, "{}", json!({"execute": command}))
+            .map_err(|error| format!("Cannot send QMP command {command}: {error}"))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Cannot flush QMP command {command}: {error}"))?;
+        let response = read_qmp_response(&mut reader)?;
+        if let Some(error) = response.get("error") {
+            return Err(format!("QMP command {command} failed: {error}"));
+        }
+        Ok(response)
+    }
+
+    fn run_qmp_action(&mut self, command: &str, success_message: &str) {
+        match self.qmp_execute(command) {
+            Ok(_) => self.status = success_message.to_owned(),
+            Err(error) => self.status = error,
+        }
+    }
+
+    fn query_qmp_status(&mut self) {
+        match self.qmp_execute("query-status") {
+            Ok(response) => {
+                let state = response
+                    .get("return")
+                    .and_then(|value| value.get("status"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                self.status = format!("Virtual machine QMP status: {state}.");
+            }
+            Err(error) => self.status = error,
         }
     }
 
@@ -266,38 +382,71 @@ impl AccessibleQemuApp {
                         .text("Virtual processor count"),
                 );
                 ui.end_row();
+
+                ui.label("QMP local port");
+                ui.add(
+                    egui::DragValue::new(&mut self.qmp_port)
+                        .range(1024..=65535)
+                        .speed(1.0),
+                );
+                ui.end_row();
             });
 
         ui.add_space(16.0);
         ui.heading("Virtual machine controls");
         ui.horizontal_wrapped(|ui| {
+            let running = self.child.is_some();
+
             if ui
-                .add_enabled(
-                    self.child.is_none(),
-                    egui::Button::new("Start virtual machine"),
-                )
+                .add_enabled(!running, egui::Button::new("Start virtual machine"))
                 .clicked()
             {
                 self.start_vm();
             }
 
             if ui
-                .add_enabled(
-                    self.child.is_some(),
-                    egui::Button::new("Stop virtual machine"),
-                )
+                .add_enabled(running, egui::Button::new("Pause virtual machine"))
                 .clicked()
             {
-                self.stop_vm();
+                self.run_qmp_action("stop", "Virtual machine paused through QMP.");
             }
 
-            if ui.button("Refresh status").clicked() {
-                self.refresh_process_state();
-                if self.child.is_some() {
-                    self.status = "Virtual machine is running.".to_owned();
-                } else if !self.status.starts_with("Unable") {
-                    self.status = "Virtual machine is stopped.".to_owned();
-                }
+            if ui
+                .add_enabled(running, egui::Button::new("Resume virtual machine"))
+                .clicked()
+            {
+                self.run_qmp_action("cont", "Virtual machine resumed through QMP.");
+            }
+
+            if ui
+                .add_enabled(running, egui::Button::new("Reset virtual machine"))
+                .clicked()
+            {
+                self.run_qmp_action("system_reset", "Virtual machine reset requested through QMP.");
+            }
+
+            if ui
+                .add_enabled(running, egui::Button::new("Request graceful shutdown"))
+                .clicked()
+            {
+                self.run_qmp_action(
+                    "system_powerdown",
+                    "Graceful guest shutdown requested through QMP.",
+                );
+            }
+
+            if ui
+                .add_enabled(running, egui::Button::new("Force stop virtual machine"))
+                .clicked()
+            {
+                self.force_stop_vm();
+            }
+
+            if ui
+                .add_enabled(running, egui::Button::new("Query virtual machine status"))
+                .clicked()
+            {
+                self.query_qmp_status();
             }
         });
 
@@ -308,7 +457,7 @@ impl AccessibleQemuApp {
         ui.add_space(16.0);
         ui.heading("Keyboard navigation");
         ui.label(
-            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust sliders, and Enter or Space to activate the focused control.",
+            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust values, and Enter or Space to activate the focused control. Every VM lifecycle command above is available without a mouse.",
         );
     }
 }
