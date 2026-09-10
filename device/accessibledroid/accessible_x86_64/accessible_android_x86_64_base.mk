@@ -30,6 +30,10 @@ PRODUCT_COPY_FILES += \
     device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64 \
     device/accessibledroid/accessible_x86_64/init.accessibledroid.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.accessibledroid.rc
 
+# Portable QEMU VM userspace hardware: DRM/HWC3 + minigbm + SwiftShader,
+# Android 17 AIDL audio over virtio-snd, and USB host feature declaration.
+$(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)
+
 # Accessibility is part of the base system and is independent of GMS.
 $(call inherit-product, vendor/accessibledroid/product/accessibility.mk)
 
