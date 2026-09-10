@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/editions.env"
+
+EDITION="${1:-$DEFAULT_EDITION}"
+
+case "$EDITION" in
+  "$AOSP_EDITION")
+    export ACCESSIBLE_ANDROID_EDITION="$AOSP_EDITION"
+    export PRODUCT_NAME="$AOSP_PRODUCT"
+    ;;
+  "$GMS_EDITION")
+    "$ROOT_DIR/scripts/validate-gms-input.sh"
+    export ACCESSIBLE_ANDROID_EDITION="$GMS_EDITION"
+    export PRODUCT_NAME="$GMS_PRODUCT"
+    ;;
+  *)
+    echo "ERROR: unknown edition: $EDITION" >&2
+    echo "Valid editions: $AOSP_EDITION, $GMS_EDITION" >&2
+    exit 2
+    ;;
+esac
+
+echo "EDITION = $ACCESSIBLE_ANDROID_EDITION"
+echo "PRODUCT = $PRODUCT_NAME"
+
+exec "$ROOT_DIR/scripts/build-pc-iso.sh"
