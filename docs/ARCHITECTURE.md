@@ -2,68 +2,115 @@
 
 ## Product objective
 
-Accessible Android is a phone-class AOSP distribution whose primary reference hardware is a virtual device. Accessibility is a boot-critical subsystem, not an optional post-install application.
+Accessible Android VM is an Android 17 x86_64 operating system that boots from ISO and installs to a VM disk. It must behave like an Android device from the guest point of view while remaining usable without sight from power-on through first-run setup and normal operation.
 
 ## Base platform
 
 - AOSP manifest: `android-latest-release`
-- Current release family: Android 17
-- Primary VM: Cuttlefish x86_64 phone
-- Secondary VM: Cuttlefish ARM64 phone
-- Build variant during development: `userdebug`
-- Production hardening target: `user`
+- Current platform: Android 17 / API 37
+- Kernel family: Android 17 GKI 6.18 plus PC/virtualization drivers
+- CPU architecture: x86_64
+- Development variant: `userdebug`
+- Release variant: hardened `user`
 
-## Layers
+## Why this is not Cuttlefish
 
-### 1. Upstream AOSP
+Cuttlefish is valuable for AOSP framework validation but it is a host-managed virtual device, not the final installable PC-style OS required by this project. The release artifact here must boot from standard VM firmware and install onto a normal virtual block device.
 
-Synced directly from `https://android.googlesource.com/platform/manifest`. The source tree is kept outside this orchestration repository because AOSP contains hundreds of Git projects and very large build outputs.
+## PC BSP layer
 
-### 2. Accessible product overlay
+AOSP alone does not provide the complete PC ISO/install stack. This project therefore maintains a PC BSP layer inspired by Android-x86 and Android-Generic concepts and forward-ports only the pieces needed for Android 17:
 
-`vendor/accessibledroid/` is copied into the AOSP tree before the build. It owns product identity, accessibility defaults, packages, overlays, init hooks and release properties without rewriting unrelated AOSP projects.
+- x86_64 kernel configuration and VM drivers;
+- virtio block/network/input/GPU/audio where practical;
+- VMware/VirtualBox-compatible fallback devices;
+- Mesa/DRM graphics path with software-rendering fallback;
+- ALSA/audio policy for VM hardware;
+- init and fstab rules for PC-style disks;
+- EFI/BIOS boot chain;
+- live-boot ramdisk;
+- installer and persistent data partition handling;
+- ISO packaging.
 
-### 3. Speech and screen reader
+Old Android-x86 Android releases are reference implementations, not the platform base.
 
-The release pipeline must provide:
+## Release formats
 
-1. a screen reader package built from auditable source;
-2. an offline system TTS engine and at least one bundled voice;
-3. first-boot configuration that makes speech available before Wi-Fi/account setup;
-4. a safe mechanism to re-enable accessibility through ADB/keyboard if configuration is damaged.
+The canonical output is:
 
-Google's public TalkBack source is the initial compatibility reference. The distribution must never depend on Play Store availability to obtain its first screen reader.
+1. `AccessibleAndroid-17-x86_64.iso` — live/install media.
+2. `AccessibleAndroid-17-x86_64.qcow2` — preinstalled QEMU/KVM disk.
+3. `AccessibleAndroid-17-x86_64.vdi` — converted VirtualBox disk.
+4. `AccessibleAndroid-17-x86_64.vmdk` — converted VMware disk.
 
-### 4. Braille
+All formats must derive from the same versioned build and publish checksums plus a build manifest.
 
-Braille support is a release requirement. The implementation must support Android accessibility APIs and a path for HID/Bluetooth braille displays, with keyboard-based braille test coverage where physical hardware is unavailable in CI.
+## Disk layout
 
-### 5. VM runtime
+The installer should use GPT by default and create a simple recoverable layout:
 
-Cuttlefish is the canonical runtime because it is developed with AOSP and exposes a phone-class Android virtual device to `adb`. The release bundle must keep host tools and device images from the same build.
+- EFI System Partition when booting UEFI;
+- Android system/root partition or immutable system image payload;
+- persistent userdata partition;
+- optional recovery/metadata area when required by the final update design.
 
-### 6. Generic VM target
+Destructive actions must require explicit confirmation and must be spoken by the accessibility layer.
 
-After the Cuttlefish reference is stable, a separate target will package a generic x86_64 UEFI/QEMU/KVM image. VMware and VirtualBox compatibility are downstream targets and must not weaken the canonical Cuttlefish build.
+## Accessibility boot path
+
+Accessibility is part of system bring-up, not an app-store dependency:
+
+1. audio driver initializes;
+2. offline TTS service becomes available;
+3. accessibility bootstrap enables the bundled screen reader;
+4. first-run UI exposes keyboard and screen-reader navigation;
+5. installer and recovery expose spoken state and keyboard controls;
+6. braille services initialize when a supported device is attached.
+
+A release that boots visually but cannot speak is considered failed.
+
+## Hypervisor matrix
+
+### Tier 1
+
+- QEMU/KVM with virtio devices.
+
+### Tier 2
+
+- VirtualBox x86_64.
+- VMware Workstation/Fusion x86_64 where host architecture permits.
+
+### Tier 3
+
+- Hyper-V Gen2 after required synthetic-device compatibility is proven.
+
+The ISO should prefer generic virtual hardware and retain software fallbacks rather than depending on one hypervisor.
+
+## Android compatibility
+
+The Android framework, PackageManager, ART, Binder, permissions, storage model and APK runtime remain normal Android. GMS/Google Play certification is a separate licensing/certification track and is not assumed by this open AOSP distribution.
 
 ## Release gates
 
-A release candidate must pass, at minimum:
+Every release candidate must validate at minimum:
 
-- boot-completed check;
-- `adb` connectivity;
-- PackageManager/APK installation smoke test;
-- audio output presence;
-- TTS engine enumeration and synthesis test;
-- enabled accessibility service verification;
-- keyboard focus traversal test;
-- screen-reader event smoke test;
-- braille service/input smoke test;
-- reboot persistence;
-- CTS plan for compatibility regressions;
-- VTS/device-side tests appropriate to the target;
-- accessibility regression suite.
+- ISO BIOS/UEFI boot;
+- installation to an empty virtual disk;
+- reboot from installed disk without ISO;
+- persistent userdata across reboot;
+- audio output;
+- offline TTS synthesis;
+- screen-reader enabled state;
+- keyboard-only first boot;
+- APK install/launch;
+- networking;
+- graphics with accelerated and software paths;
+- accessibility-event smoke tests;
+- braille path smoke test;
+- QEMU/KVM boot test;
+- VirtualBox and VMware compatibility tests when runners are available;
+- Android CTS/VTS subsets applicable to the PC target.
 
-## Non-goals
+## Definition of done
 
-The project does not claim that an AOSP build is a Google-certified phone. GMS/Play certification and proprietary hardware blobs are separate licensing/certification tracks.
+The project is done only when a blind user can create a fresh VM, attach the ISO, boot, hear usable speech, install Android to the virtual disk, reboot, complete setup and operate Android without requiring sight or a second inaccessible setup environment.
