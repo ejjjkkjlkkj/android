@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/upstream.env"
 
-AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
 PRODUCT="${PRODUCT_NAME:-accessible_android_x86_64}"
 VARIANT="${BUILD_VARIANT:-userdebug}"
 
