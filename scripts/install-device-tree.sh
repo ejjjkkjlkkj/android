@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
+PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
 
 [[ -d "$AOSP_DIR/.repo" ]] || {
   echo "ERROR: AOSP checkout not found at $AOSP_DIR" >&2
@@ -28,3 +30,4 @@ if [[ -d "$ROOT_DIR/vendor/accessibledroid" ]]; then
 fi
 
 echo "ACCESSIBLE_DEVICE_TREE = INSTALLED"
+echo "AOSP_DIR = $AOSP_DIR"
