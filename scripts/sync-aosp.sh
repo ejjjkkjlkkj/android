@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$ROOT"
+# shellcheck disable=SC1091
+source "$ROOT/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT/config/upstream.env"
 
-AOSP_DIR="${AOSP_DIR:-$ROOT/.work/aosp}"
 SYNC_JOBS="${SYNC_JOBS:-8}"
 
 mkdir -p "$AOSP_DIR"
