@@ -1,0 +1,12 @@
+android_app {
+    name: "AccessibilityBootstrap",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    resource_dirs: ["res"],
+    certificate: "platform",
+    privileged: true,
+    platform_apis: true,
+    optimize: {
+        enabled: true,
+    },
+}
