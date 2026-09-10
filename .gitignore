@@ -2,6 +2,7 @@
 .repo/
 out/
 .aosp/
+.work/
 
 # Private/licensed Google Mobile Services inputs
 local-gms/
