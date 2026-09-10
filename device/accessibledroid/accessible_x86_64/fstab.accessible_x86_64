@@ -1,0 +1,18 @@
+# AccessibleAndroid x86_64 VM fstab.
+# The installer creates GPT partitions with these by-name labels on the primary
+# virtio disk. Dynamic partitions inside super are slot-aware.
+
+/dev/block/by-name/boot        /boot        emmc  defaults  recoveryonly,slotselect,first_stage_mount,avb=boot
+/dev/block/by-name/init_boot   /init_boot   emmc  defaults  recoveryonly,slotselect,first_stage_mount,avb=init_boot
+/dev/block/by-name/vendor_boot /vendor_boot emmc  defaults  recoveryonly,slotselect
+
+system     /system     ext4 noatime,ro,errors=panic wait,logical,first_stage_mount,slotselect,avb
+system_ext /system_ext ext4 noatime,ro,errors=panic wait,logical,first_stage_mount,slotselect,avb,nofail
+product    /product    ext4 noatime,ro,errors=panic wait,logical,first_stage_mount,slotselect,avb,nofail
+vendor     /vendor     ext4 noatime,ro,errors=panic wait,logical,first_stage_mount,slotselect,avb
+
+/dev/block/by-name/metadata /metadata ext4 nodev,noatime,nosuid,errors=panic wait,check,formattable,first_stage_mount
+/dev/block/by-name/userdata /data     ext4 nodev,noatime,nosuid,errors=panic latemount,wait,check,quota,formattable,checkpoint=block
+/dev/block/by-name/misc     /misc     emmc defaults defaults
+
+/dev/block/zram0 none swap defaults zramsize=50%
