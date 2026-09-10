@@ -4,13 +4,17 @@ on:
   push:
     paths:
       - 'accessible-qemu/**'
+      - 'config/utm-upstreams.env'
       - 'docs/ACCESSIBLE_QEMU.md'
+      - 'docs/UTM_DESIGN_IMPORTS.md'
       - 'docs/WINDOWS_11_26H2.md'
       - '.github/workflows/accessible-qemu-windows.yml'
   pull_request:
     paths:
       - 'accessible-qemu/**'
+      - 'config/utm-upstreams.env'
       - 'docs/ACCESSIBLE_QEMU.md'
+      - 'docs/UTM_DESIGN_IMPORTS.md'
       - 'docs/WINDOWS_11_26H2.md'
       - '.github/workflows/accessible-qemu-windows.yml'
   workflow_dispatch:
@@ -42,11 +46,15 @@ jobs:
         shell: pwsh
         run: cargo check --manifest-path accessible-qemu/Cargo.toml
 
+      - name: Cargo tests
+        shell: pwsh
+        run: cargo test --manifest-path accessible-qemu/Cargo.toml
+
       - name: Build release executable
         shell: pwsh
         run: cargo build --release --manifest-path accessible-qemu/Cargo.toml
 
-      - name: Verify executable and headless CLI
+      - name: Verify executable, configuration and deterministic QEMU topology
         shell: pwsh
         run: |
           $exe = 'accessible-qemu/target/release/accessible-qemu.exe'
@@ -55,8 +63,10 @@ jobs:
 
           $help = (& $exe --help | Out-String)
           if ($LASTEXITCODE -ne 0) { throw "AccessibleQEMU --help failed with exit code $LASTEXITCODE" }
-          if ($help -notmatch 'AccessibleQEMU' -or $help -notmatch '--qmp-port') {
-            throw 'AccessibleQEMU --help did not return the expected headless CLI text.'
+          foreach ($required in @('--config','--write-config','--print-qemu-command','--serial-log','--qmp-port')) {
+            if ($help -notmatch [regex]::Escape($required)) {
+              throw "AccessibleQEMU --help is missing $required"
+            }
           }
 
           $version = (& $exe --version | Out-String).Trim()
@@ -64,6 +74,35 @@ jobs:
           if ($version -notmatch '^AccessibleQEMU 0\.1\.0$') {
             throw "Unexpected AccessibleQEMU version output: $version"
           }
+
+          $temp = Join-Path $env:RUNNER_TEMP 'accessible-qemu-ci'
+          New-Item -ItemType Directory -Force -Path $temp | Out-Null
+          $disk = Join-Path $temp 'android.qcow2'
+          $iso = Join-Path $temp 'android.iso'
+          $config = Join-Path $temp 'android.aqemu.json'
+          New-Item -ItemType File -Force -Path $disk,$iso | Out-Null
+
+          & $exe --disk $disk --iso $iso --serial-log (Join-Path $temp 'serial.log') --write-config $config
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $config)) { throw 'Configuration write failed.' }
+          $json = Get-Content $config -Raw | ConvertFrom-Json
+          if ($json.schema -ne 1 -or $json.memory_mib -ne 4096 -or $json.cpu_count -ne 4) {
+            throw 'Unexpected saved VM configuration.'
+          }
+
+          $command = (& $exe --config $config --print-qemu-command | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'QEMU command generation failed.' }
+          foreach ($required in @(
+            'virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6',
+            'format=qcow2',
+            'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x7',
+            'virtio-rng-pci,bus=pcie.0,addr=0x8',
+            'tcp:127.0.0.1:4444,server=on,wait=off'
+          )) {
+            if ($command -notmatch [regex]::Escape($required)) {
+              throw "Generated QEMU topology is missing: $required"
+            }
+          }
+          Write-Host $command
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v7.0.1
@@ -92,13 +131,11 @@ jobs:
           if ($displayVersion -ne '26H2') { throw "Expected Windows 11 26H2, got $displayVersion" }
           if ($build -lt 26300) { throw "Expected Windows 11 26H2 build >= 26300, got $build" }
 
-      - name: Build release executable
-        shell: pwsh
-        run: cargo build --release --manifest-path accessible-qemu/Cargo.toml
-
-      - name: Verify headless CLI
+      - name: Build and test release executable
         shell: pwsh
         run: |
+          cargo test --manifest-path accessible-qemu/Cargo.toml
+          cargo build --release --manifest-path accessible-qemu/Cargo.toml
           $exe = 'accessible-qemu/target/release/accessible-qemu.exe'
           & $exe --help
           if ($LASTEXITCODE -ne 0) { throw 'AccessibleQEMU --help failed.' }
@@ -130,4 +167,4 @@ jobs:
               Write-Host "$name=NOT_RUNNING"
             }
           }
-          Write-Host 'NOTE: automated process detection is not a substitute for the required real keyboard/UIA screen-reader task suite.'
+          Write-Host 'NOTE: process detection is not a substitute for the required real keyboard/UIA screen-reader task suite.'
