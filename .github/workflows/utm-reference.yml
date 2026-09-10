@@ -4,17 +4,21 @@ on:
   push:
     paths:
       - 'config/utm-upstreams.env'
+      - 'config/qemu-engine.env'
       - 'config/workspace.env'
       - 'scripts/sync-utm-upstreams.sh'
       - 'scripts/audit-utm-qemu-delta.sh'
+      - 'scripts/audit-qemu-engine-candidate.sh'
       - 'docs/UTM_DESIGN_IMPORTS.md'
       - '.github/workflows/utm-reference.yml'
   pull_request:
     paths:
       - 'config/utm-upstreams.env'
+      - 'config/qemu-engine.env'
       - 'config/workspace.env'
       - 'scripts/sync-utm-upstreams.sh'
       - 'scripts/audit-utm-qemu-delta.sh'
+      - 'scripts/audit-qemu-engine-candidate.sh'
       - 'docs/UTM_DESIGN_IMPORTS.md'
       - '.github/workflows/utm-reference.yml'
   workflow_dispatch:
@@ -35,12 +39,18 @@ jobs:
         run: |
           set -euo pipefail
           source config/utm-upstreams.env
+          source config/qemu-engine.env
           [[ "$UTM_REV" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UTM_QEMU_RELEASE_REV" =~ ^[0-9a-f]{40}$ ]]
           [[ "$UTM_QEMU_HEAD_REV" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$QEMU_UPSTREAM_REV" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$QEMU_UTM_CANDIDATE_BLOB_UNMAP_REV" =~ ^[0-9a-f]{40}$ ]]
           test "$UTM_LICENSE" = 'Apache-2.0'
           test "$UTM_QEMU_RELEASE_TAG" = 'v10.0.12-utm'
+          test "$QEMU_UPSTREAM_TAG" = 'v11.1.1'
+          test "$QEMU_UTM_CANDIDATE_BLOB_UNMAP_STATE" = 'review'
           grep -Fq 'UTM_REFERENCE_DIR=' config/workspace.env
+          grep -Fq 'QEMU_ENGINE_DIR=' config/workspace.env
           if grep -Eq '\$AOSP_DIR|device/generic|bootable/aaropa' scripts/sync-utm-upstreams.sh; then
             echo 'ERROR: UTM reference sync must remain isolated from AOSP.' >&2
             exit 1
@@ -55,6 +65,10 @@ jobs:
         shell: bash
         run: bash scripts/audit-utm-qemu-delta.sh
 
+      - name: Audit candidate patch against QEMU 11.1.1
+        shell: bash
+        run: bash scripts/audit-qemu-engine-candidate.sh
+
       - name: Verify provenance
         shell: bash
         run: |
@@ -65,13 +79,17 @@ jobs:
           grep -Fq "UTM_REV=$UTM_REV" "$provenance"
           grep -Fq "UTM_QEMU_HEAD_REV=$UTM_QEMU_HEAD_REV" "$provenance"
           test -s .work/utm-reference/UTM-QEMU-DELTA.txt
+          test -s .work/qemu-engine/CANDIDATE-BLOB-UNMAP.txt
           echo 'UTM_SOURCE_PROVENANCE = PASS'
 
-      - name: Upload source provenance and delta audit
+      - name: Upload source provenance and engine audit
         uses: actions/upload-artifact@v7.0.1
         with:
           name: utm-source-provenance
           path: |
             .work/utm-reference/PROVENANCE.txt
             .work/utm-reference/UTM-QEMU-DELTA.txt
+            .work/qemu-engine/CANDIDATE-BLOB-UNMAP.txt
+            .work/qemu-engine/cherry-pick.stdout
+            .work/qemu-engine/cherry-pick.stderr
           if-no-files-found: error
