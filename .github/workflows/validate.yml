@@ -71,7 +71,8 @@ jobs:
           grep -Fq 'TARGET_NO_KERNEL := false' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'TARGET_PREBUILT_KERNEL := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/kernel' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'initramfs.img' scripts/build-kernel.sh
-          grep -Fq 'prebuilt/modules' scripts/stage-kernel.sh
+          grep -Fq 'TARGET_MODULES_DIR="$TARGET_DIR/modules"' scripts/stage-kernel.sh
+          grep -Fq "find \"\$KERNEL_DIST_DIR\" -type f -name '*.ko'" scripts/stage-kernel.sh
           if grep -R -n -E --include='*.sh' '^[[:space:]]*(source|\.)[[:space:]].*build\.config\.x86_64' scripts; then
             echo 'ERROR: legacy Android kernel build.config.x86_64 sourcing is forbidden.' >&2
             exit 1
