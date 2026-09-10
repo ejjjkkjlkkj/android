@@ -1,0 +1,112 @@
+name: AccessibleQEMU Windows
+
+on:
+  push:
+    paths:
+      - 'accessible-qemu/**'
+      - 'docs/ACCESSIBLE_QEMU.md'
+      - 'docs/WINDOWS_11_26H2.md'
+      - '.github/workflows/accessible-qemu-windows.yml'
+  pull_request:
+    paths:
+      - 'accessible-qemu/**'
+      - 'docs/ACCESSIBLE_QEMU.md'
+      - 'docs/WINDOWS_11_26H2.md'
+      - '.github/workflows/accessible-qemu-windows.yml'
+  workflow_dispatch:
+    inputs:
+      run_windows_11_26h2:
+        description: 'Run real Windows 11 26H2 self-hosted validation'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build AccessibleQEMU on Windows x64
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Show Rust toolchain
+        shell: pwsh
+        run: |
+          rustc -vV
+          cargo -V
+
+      - name: Cargo check
+        shell: pwsh
+        run: cargo check --manifest-path accessible-qemu/Cargo.toml --locked
+
+      - name: Build release executable
+        shell: pwsh
+        run: cargo build --release --manifest-path accessible-qemu/Cargo.toml --locked
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          $exe = 'accessible-qemu/target/release/accessible-qemu.exe'
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          Get-Item $exe | Format-List FullName,Length,LastWriteTime
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleQEMU-windows-x64
+          path: accessible-qemu/target/release/accessible-qemu.exe
+          if-no-files-found: error
+
+  windows-11-26h2-runtime:
+    name: Real Windows 11 26H2 accessibility host validation
+    if: github.event_name == 'workflow_dispatch' && inputs.run_windows_11_26h2
+    runs-on: [self-hosted, Windows, X64, windows-11-26h2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify Windows 11 26H2 host
+        shell: pwsh
+        run: |
+          $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+          $displayVersion = [string]$cv.DisplayVersion
+          $build = [int]$cv.CurrentBuildNumber
+          Write-Host "ProductName=$($cv.ProductName)"
+          Write-Host "DisplayVersion=$displayVersion"
+          Write-Host "Build=$build"
+          if ($displayVersion -ne '26H2') { throw "Expected Windows 11 26H2, got $displayVersion" }
+          if ($build -lt 26300) { throw "Expected Windows 11 26H2 build >= 26300, got $build" }
+
+      - name: Build release executable
+        shell: pwsh
+        run: cargo build --release --manifest-path accessible-qemu/Cargo.toml --locked
+
+      - name: Detect QEMU
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Get-Command qemu-system-x86_64.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+            'C:\Program Files\qemu\qemu-system-x86_64.exe',
+            'C:\Program Files (x86)\qemu\qemu-system-x86_64.exe'
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          if (-not $candidates) { throw 'QEMU x86_64 is not installed on the Windows 11 26H2 validation host.' }
+          $qemu = $candidates | Select-Object -First 1
+          Write-Host "QEMU=$qemu"
+          & $qemu --version
+
+      - name: Record screen-reader availability
+        shell: pwsh
+        run: |
+          $names = @('nvda','jfw','Narrator')
+          foreach ($name in $names) {
+            $proc = Get-Process -Name $name -ErrorAction SilentlyContinue
+            if ($proc) {
+              Write-Host "$name=RUNNING"
+            } else {
+              Write-Host "$name=NOT_RUNNING"
+            }
+          }
+          Write-Host 'NOTE: automated process detection is not a substitute for the required real keyboard/UIA screen-reader task suite.'
