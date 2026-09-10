@@ -29,12 +29,14 @@ BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 67108864
 BOARD_RAMDISK_USE_LZ4 := true
 
 # Serial output is a deterministic accessibility/debugging fallback before the
-# Android speech stack is available. QEMU exposes the same serial stream to the
-# host-side AccessibleQEMU diagnostics.
+# Android speech stack is available. The primary virtio-blk installation disk
+# is pinned by every project QEMU launcher to PCI 0000:00:06.0.
 BOARD_KERNEL_CMDLINE += console=tty0 console=ttyS0,115200n8
 BOARD_KERNEL_CMDLINE += panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7
+BOARD_KERNEL_CMDLINE += androidboot.hardware=accessible_x86_64
+BOARD_KERNEL_CMDLINE += androidboot.boot_devices=pci0000:00/0000:00:06.0
 BOARD_BOOTCONFIG += androidboot.hardware=accessible_x86_64
-BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00
+BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00/0000:00:06.0
 
 # Android 17 virtual-device kernel modules staged by scripts/stage-kernel.sh.
 KERNEL_MODULE_DIR := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/modules
