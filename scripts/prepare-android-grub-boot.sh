@@ -106,16 +106,27 @@ install -m 0644 "$BOOT_OUT/kernel" "$GRUB_OUT/kernel"
 for ramdisk in "${vendor_ramdisks[@]}"; do
   cat "$ramdisk" >> "$GRUB_OUT/android-initrd.img"
 done
-# Android bootloader contract: generic ramdisk must be last and directly
-# adjacent to the vendor ramdisk data.
+# Android bootloader contract: generic ramdisk follows every vendor ramdisk.
 cat "$INIT_OUT/ramdisk" >> "$GRUB_OUT/android-initrd.img"
 
+bootconfig_enabled=0
 if [[ -s "$VENDOR_OUT/bootconfig" ]]; then
   install -m 0644 "$VENDOR_OUT/bootconfig" "$GRUB_OUT/vendor-bootconfig.txt"
+  # Linux requires bootconfig to be the final initrd section. The helper adds
+  # NUL/padding, little-endian size/checksum, and #BOOTCONFIG\n, then verifies
+  # the completed image before GRUB ever consumes it.
+  python3 "$ROOT_DIR/scripts/bootconfig_tool.py" append \
+    "$GRUB_OUT/android-initrd.img" "$GRUB_OUT/vendor-bootconfig.txt"
+  python3 "$ROOT_DIR/scripts/bootconfig_tool.py" verify "$GRUB_OUT/android-initrd.img"
+  bootconfig_enabled=1
 fi
 
+BOOTCONFIG_CMDLINE=""
+if [[ "$bootconfig_enabled" == "1" ]]; then
+  BOOTCONFIG_CMDLINE=" bootconfig"
+fi
 cat > "$GRUB_OUT/kernel-cmdline.txt" <<EOF
-console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked
+console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
 EOF
 
 {
@@ -124,6 +135,7 @@ EOF
   echo "vendor_ramdisk_fragments=${#vendor_ramdisks[@]}"
   printf 'vendor_ramdisk=%s\n' "${vendor_ramdisks[@]##*/}"
   echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
+  echo "bootconfig_attached=$bootconfig_enabled"
 } > "$GRUB_OUT/PROVENANCE.txt"
 
 sha_tmp="$GRUB_OUT/.SHA256SUMS.tmp"
@@ -139,9 +151,11 @@ mv -f "$sha_tmp" "$GRUB_OUT/SHA256SUMS"
   echo "ERROR: direct boot assets are incomplete" >&2
   exit 9
 }
+
 echo "ANDROID_GRUB_BOOT_ASSETS = PASS"
 echo "KERNEL = $GRUB_OUT/kernel"
 echo "INITRD = $GRUB_OUT/android-initrd.img"
 echo "RAMDISK_FORMAT = $generic_format"
 echo "VENDOR_RAMDISK_FRAGMENTS = ${#vendor_ramdisks[@]}"
+echo "BOOTCONFIG_ATTACHED = $bootconfig_enabled"
 echo "ANDROID_BOOT_DEVICES = $ANDROID_BOOT_DEVICES"
