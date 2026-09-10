@@ -17,6 +17,8 @@ BOOT_OUT="$WORK_DIR/boot"
 INIT_OUT="$WORK_DIR/init_boot"
 VENDOR_OUT="$WORK_DIR/vendor_boot"
 GRUB_OUT="$VM_ARTIFACT_DIR/android-grub"
+BOOT_ARGS_FILE="$WORK_DIR/boot-mkbootimg-args.bin"
+VENDOR_ARGS_FILE="$WORK_DIR/vendor-mkbootimg-args.bin"
 
 BOOT_IMAGE="$PRODUCT_OUT/boot.img"
 INIT_BOOT_IMAGE="$PRODUCT_OUT/init_boot.img"
@@ -49,6 +51,34 @@ run_unpack() {
   fi
 }
 
+run_unpack_mkbootimg_args() {
+  local image="$1"
+  local output="$2"
+  local args_file="$3"
+  if [[ -x "$UNPACK_TOOL" ]]; then
+    "$UNPACK_TOOL" --boot_img "$image" --out "$output" --format=mkbootimg -0 > "$args_file"
+  else
+    python3 "$UNPACK_TOOL" --boot_img "$image" --out "$output" --format=mkbootimg -0 > "$args_file"
+  fi
+}
+
+nul_argument_value() {
+  local key="$1"
+  local args_file="$2"
+  local argument=""
+  local take_next=0
+  while IFS= read -r -d '' argument; do
+    if [[ "$take_next" == "1" ]]; then
+      printf '%s\n' "$argument"
+      return 0
+    fi
+    if [[ "$argument" == "$key" ]]; then
+      take_next=1
+    fi
+  done < "$args_file"
+  return 1
+}
+
 ramdisk_format() {
   local image="$1"
   local magic
@@ -66,6 +96,17 @@ mkdir -p "$BOOT_OUT" "$INIT_OUT" "$VENDOR_OUT" "$GRUB_OUT"
 run_unpack "$BOOT_IMAGE" "$BOOT_OUT" > "$GRUB_OUT/boot-image-info.txt"
 run_unpack "$INIT_BOOT_IMAGE" "$INIT_OUT" > "$GRUB_OUT/init-boot-image-info.txt"
 run_unpack "$VENDOR_BOOT_IMAGE" "$VENDOR_OUT" > "$GRUB_OUT/vendor-boot-image-info.txt"
+
+# Re-run boot/vendor extraction in the machine-readable form AOSP explicitly
+# provides for reconstructing mkbootimg arguments. Files are overwritten with
+# identical extracted bytes while the NUL-delimited argument stream is saved.
+run_unpack_mkbootimg_args "$BOOT_IMAGE" "$BOOT_OUT" "$BOOT_ARGS_FILE"
+run_unpack_mkbootimg_args "$VENDOR_BOOT_IMAGE" "$VENDOR_OUT" "$VENDOR_ARGS_FILE"
+
+BOOT_IMAGE_CMDLINE="$(nul_argument_value --cmdline "$BOOT_ARGS_FILE" || true)"
+VENDOR_IMAGE_CMDLINE="$(nul_argument_value --vendor_cmdline "$VENDOR_ARGS_FILE" || true)"
+printf '%s\n' "$BOOT_IMAGE_CMDLINE" > "$GRUB_OUT/aosp-boot-cmdline.txt"
+printf '%s\n' "$VENDOR_IMAGE_CMDLINE" > "$GRUB_OUT/aosp-vendor-cmdline.txt"
 
 [[ -s "$BOOT_OUT/kernel" ]] || {
   echo "ERROR: boot.img did not contain a kernel" >&2
@@ -125,8 +166,12 @@ BOOTCONFIG_CMDLINE=""
 if [[ "$bootconfig_enabled" == "1" ]]; then
   BOOTCONFIG_CMDLINE=" bootconfig"
 fi
+
+# Preserve the exact AOSP-generated boot and vendor command lines. Project
+# overrides are appended last so the deterministic x86_64 PC contract wins if
+# an inherited virtual-device default specifies a conflicting value.
 cat > "$GRUB_OUT/kernel-cmdline.txt" <<EOF
-console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
+${BOOT_IMAGE_CMDLINE} ${VENDOR_IMAGE_CMDLINE} init=/init security=selinux cma=0 firmware_class.path=/vendor/etc/ console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
 EOF
 
 {
@@ -136,6 +181,8 @@ EOF
   printf 'vendor_ramdisk=%s\n' "${vendor_ramdisks[@]##*/}"
   echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
   echo "bootconfig_attached=$bootconfig_enabled"
+  echo "aosp_boot_cmdline_present=$([[ -n "$BOOT_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
+  echo "aosp_vendor_cmdline_present=$([[ -n "$VENDOR_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
 } > "$GRUB_OUT/PROVENANCE.txt"
 
 sha_tmp="$GRUB_OUT/.SHA256SUMS.tmp"
