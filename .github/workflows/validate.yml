@@ -69,10 +69,49 @@ jobs:
           test "$KERNEL_IMAGE_NAME" = "bzImage"
           test -n "$KERNEL_REQUIRED_VM_MODULES"
           grep -Fq 'TARGET_NO_KERNEL := false' device/accessibledroid/accessible_x86_64/BoardConfig.mk
-          grep -Fq 'TARGET_PREBUILT_KERNEL := device/accessibledroid/accessible_x86_64/prebuilt/kernel' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'TARGET_PREBUILT_KERNEL := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/kernel' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'initramfs.img' scripts/build-kernel.sh
+          grep -Fq 'prebuilt/modules' scripts/stage-kernel.sh
           if grep -R -n -E --include='*.sh' '^[[:space:]]*(source|\.)[[:space:]].*build\.config\.x86_64' scripts; then
             echo 'ERROR: legacy Android kernel build.config.x86_64 sourcing is forbidden.' >&2
             exit 1
           fi
           echo "ANDROID_KERNEL_CONTRACT = PASS ($KERNEL_FAMILY $KERNEL_ARCH)"
+
+      - name: Protect the official AOSP tree from PC reference overlays
+        run: |
+          set -euo pipefail
+          grep -Fq 'PC_REFERENCE_DIR=' config/workspace.env
+          grep -Fq 'PC_REFERENCE_DIR/device_generic_common' scripts/sync-pc-upstreams.sh
+          grep -Fq 'PC_REFERENCE_DIR/device_generic_x86_64' scripts/sync-pc-upstreams.sh
+          if grep -Eq '\$AOSP_DIR/(device/generic/(common|x86_64)|bootable/aaropa)' scripts/sync-pc-upstreams.sh; then
+            echo 'ERROR: PC reference sync must not overwrite official AOSP sources.' >&2
+            exit 1
+          fi
+          if grep -Fq 'device/generic/common/x86_64.mk' device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk; then
+            echo 'ERROR: AccessibleAndroid product must not inherit the legacy Bliss/Android-x86 product root.' >&2
+            exit 1
+          fi
+          grep -Fq '$(SRC_TARGET_DIR)/product/generic_system.mk' device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
+          grep -Fq '$(SRC_TARGET_DIR)/product/handheld_system_ext.mk' device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
+          echo 'AOSP_TREE_ISOLATION = PASS'
+
+      - name: Validate modern boot and dynamic partition contract
+        run: |
+          set -euo pipefail
+          board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          product=device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
+          fstab=device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64
+          grep -Fq 'BOARD_BOOT_HEADER_VERSION := 4' "$board"
+          grep -Fq 'BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE := 8388608' "$board"
+          grep -Fq 'BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 67108864' "$board"
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' "$board"
+          grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' "$board"
+          grep -Fq 'BOARD_SUPER_PARTITION_SIZE := 7516192768' "$board"
+          grep -Fq 'AB_OTA_UPDATER := true' "$board"
+          grep -Fq 'BOARD_AVB_ENABLE := true' "$board"
+          grep -Fq 'PRODUCT_USE_DYNAMIC_PARTITIONS := true' "$product"
+          grep -Fq 'fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64' "$product"
+          grep -Fq 'logical,first_stage_mount,slotselect,avb' "$fstab"
+          grep -Fq '/dev/block/by-name/userdata' "$fstab"
+          echo 'ANDROID_BOOT_LAYOUT = PASS'
