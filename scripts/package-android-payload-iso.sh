@@ -12,6 +12,7 @@ PRODUCT="${PRODUCT_NAME:-accessible_android_x86_64}"
 PRODUCT_OUT="${OUT_DIR:-$AOSP_DIR/out/target/product/$PRODUCT}"
 KERNEL="$KERNEL_DIST_DIR/bzImage"
 SMOKE_INITRAMFS="$VM_ARTIFACT_DIR/accessible-android-kernel-smoke-initramfs.img"
+DIRECT_BOOT_DIR="$VM_ARTIFACT_DIR/android-grub"
 ISO="$VM_ARTIFACT_DIR/AccessibleAndroid-17-${PRODUCT}-installer-preview.iso"
 STAGE="$ROOT_DIR/.work/tmp/android-payload-iso"
 CHUNK_BYTES="${PAYLOAD_CHUNK_BYTES:-1073741824}"
@@ -38,19 +39,45 @@ for image in "${ANDROID_IMAGES[@]}"; do
   }
 done
 
+# Prepare the real Android first-stage initramfs by following the Android GKI
+# bootloader contract: vendor ramdisk fragment(s), then generic init_boot ramdisk.
+"$ROOT_DIR/scripts/prepare-android-grub-boot.sh"
+[[ -s "$DIRECT_BOOT_DIR/kernel" && -s "$DIRECT_BOOT_DIR/android-initrd.img" ]] || {
+  echo "ERROR: direct Android GRUB assets were not produced" >&2
+  exit 5
+}
+DIRECT_CMDLINE="$(tr '\n' ' ' < "$DIRECT_BOOT_DIR/kernel-cmdline.txt" | sed -E 's/[[:space:]]+$//')"
+
 rm -rf "$STAGE"
-mkdir -p "$STAGE/boot/grub" "$STAGE/android" "$STAGE/payload" "$VM_ARTIFACT_DIR"
+mkdir -p "$STAGE/boot/grub" "$STAGE/android/direct" "$STAGE/payload" "$VM_ARTIFACT_DIR"
 install -m 0644 "$KERNEL" "$STAGE/android/kernel"
 install -m 0644 "$SMOKE_INITRAMFS" "$STAGE/android/installer-initramfs.img"
+install -m 0644 "$DIRECT_BOOT_DIR/kernel" "$STAGE/android/direct/kernel"
+install -m 0644 "$DIRECT_BOOT_DIR/android-initrd.img" "$STAGE/android/direct/android-initrd.img"
+install -m 0644 "$DIRECT_BOOT_DIR/kernel-cmdline.txt" "$STAGE/android/direct/kernel-cmdline.txt"
+install -m 0644 "$DIRECT_BOOT_DIR/PROVENANCE.txt" "$STAGE/android/direct/PROVENANCE.txt"
+install -m 0644 "$DIRECT_BOOT_DIR/SHA256SUMS" "$STAGE/android/direct/SHA256SUMS"
+[[ ! -s "$DIRECT_BOOT_DIR/vendor-bootconfig.txt" ]] || \
+  install -m 0644 "$DIRECT_BOOT_DIR/vendor-bootconfig.txt" "$STAGE/android/direct/vendor-bootconfig.txt"
 
 cat > "$STAGE/boot/grub/grub.cfg" <<'EOF'
-set timeout=5
+set timeout=8
 set default=0
 
-menuentry 'AccessibleAndroid 17 installer bootstrap' --id accessible-android-installer {
-    echo 'Starting AccessibleAndroid installer bootstrap...'
+menuentry 'AccessibleAndroid 17 installer bootstrap - safe diagnostics' --id accessible-android-installer {
+    echo 'Starting non-destructive AccessibleAndroid installer bootstrap...'
     linux /android/kernel console=tty0 console=ttyS0,115200n8 earlycon=uart,io,0x3f8,115200n8 panic=-1 rdinit=/init
     initrd /android/installer-initramfs.img
+}
+EOF
+
+cat >> "$STAGE/boot/grub/grub.cfg" <<EOF
+
+menuentry 'AccessibleAndroid 17 direct boot - experimental' --id accessible-android-direct {
+    echo 'Starting Android 17 first-stage init from vendor_boot + init_boot...'
+    echo 'A preinstalled AccessibleAndroid GPT disk is required at PCI 0000:00:06.0.'
+    linux /android/direct/kernel $DIRECT_CMDLINE
+    initrd /android/direct/android-initrd.img
 }
 EOF
 
@@ -58,10 +85,14 @@ cat > "$STAGE/README.txt" <<'EOF'
 AccessibleAndroid 17 x86_64 installer preview media
 
 This engineering image is bootable in BIOS and UEFI modes and contains the
-Android installation payload plus integrity metadata. The current bootstrap is
-NON-DESTRUCTIVE: it opens a serial/text diagnostics shell and does not modify a
-disk. A tested GPT installer will consume the same payload format in a later
-milestone.
+Android installation payload plus integrity metadata.
+
+The DEFAULT installer-bootstrap entry is NON-DESTRUCTIVE: it opens a serial/text
+diagnostics shell and does not modify a disk.
+
+The second GRUB entry boots the real Android 17 first-stage initramfs assembled
+from vendor_boot + init_boot. It requires the project preinstalled GPT disk at
+the deterministic virtio PCI address documented in config/vm.env.
 EOF
 
 MANIFEST="$STAGE/payload/MANIFEST.txt"
@@ -102,18 +133,24 @@ rm -f "$ISO" "$ISO.sha256"
 grub-mkrescue -o "$ISO" "$STAGE" >/dev/null
 [[ -s "$ISO" ]] || {
   echo "ERROR: failed to produce payload ISO" >&2
-  exit 5
+  exit 6
 }
 
-for required in /android/kernel /android/installer-initramfs.img /payload/MANIFEST.txt /payload/SHA256SUMS; do
+for required in \
+  /android/kernel \
+  /android/installer-initramfs.img \
+  /android/direct/kernel \
+  /android/direct/android-initrd.img \
+  /payload/MANIFEST.txt \
+  /payload/SHA256SUMS; do
   xorriso -indev "$ISO" -find "$required" -exec report_lba -- >/dev/null 2>&1 || {
     echo "ERROR: ISO is missing required path: $required" >&2
-    exit 6
+    exit 7
   }
 done
 
 sha256sum "$ISO" > "$ISO.sha256"
 echo "ANDROID_PAYLOAD_ISO = PASS"
-echo "MODE = NON_DESTRUCTIVE_INSTALLER_PREVIEW"
+echo "MODE = NON_DESTRUCTIVE_INSTALLER_PREVIEW_WITH_EXPERIMENTAL_DIRECT_ANDROID_BOOT"
 echo "ISO = $ISO"
 cat "$ISO.sha256"
