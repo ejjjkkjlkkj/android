@@ -29,7 +29,7 @@ rm -f "$DEST_DIR/talkback.apk" "$DEST_DIR/espeak-ng.apk"
 build_talkback() {
   echo "==> Build TalkBack from pinned source"
   cd "$SRC_ROOT/talkback"
-  ANDROID_SDK="$SDK_ROOT" GRADLE_DEBUG= GRADLE_STACKTRACE= bash ./build.sh
+  ANDROID_SDK="$SDK_ROOT" GRADLE_DEBUG='' GRADLE_STACKTRACE='' bash ./build.sh
 
   local apk
   apk="$(find . -type f -path '*/build/outputs/apk/*' -name '*.apk' ! -name '*test*' | sort | head -n 1)"
