@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
+
+pub const VM_CONFIG_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -84,7 +88,9 @@ impl GuestProfile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VmConfig {
+    pub schema_version: u32,
     pub name: String,
     pub profile: GuestProfile,
     pub architecture: Architecture,
@@ -100,6 +106,7 @@ pub struct VmConfig {
 impl Default for VmConfig {
     fn default() -> Self {
         Self {
+            schema_version: VM_CONFIG_SCHEMA_VERSION,
             name: "AccessibleAndroid".to_owned(),
             profile: GuestProfile::AccessibleAndroid,
             architecture: Architecture::X86_64,
@@ -111,5 +118,108 @@ impl Default for VmConfig {
             cpu_count: 6,
             qmp_port: 4444,
         }
+    }
+}
+
+impl VmConfig {
+    pub fn normalize(&mut self) {
+        self.schema_version = VM_CONFIG_SCHEMA_VERSION;
+        self.memory_mib = self.memory_mib.clamp(1024, 65536);
+        self.cpu_count = self.cpu_count.clamp(1, 32);
+        if self.qmp_port == 0 {
+            self.qmp_port = 4444;
+        }
+        if self.name.trim().is_empty() {
+            self.name = self.profile.label().to_owned();
+        }
+    }
+
+    pub fn to_json_pretty(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|error| format!("Cannot serialize VM configuration: {error}"))
+    }
+
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        let mut config: Self = serde_json::from_str(text)
+            .map_err(|error| format!("Cannot parse VM configuration: {error}"))?;
+        if config.schema_version > VM_CONFIG_SCHEMA_VERSION {
+            return Err(format!(
+                "VM configuration schema {} is newer than supported schema {}.",
+                config.schema_version, VM_CONFIG_SCHEMA_VERSION
+            ));
+        }
+        config.normalize();
+        Ok(config)
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!("Cannot create VM configuration directory '{}': {error}", parent.display())
+                })?;
+            }
+        }
+        let json = self.to_json_pretty()?;
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, json)
+            .map_err(|error| format!("Cannot write temporary VM configuration '{}': {error}", temporary.display()))?;
+        fs::rename(&temporary, path)
+            .map_err(|error| format!("Cannot commit VM configuration '{}': {error}", path.display()))?;
+        Ok(())
+    }
+
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let text = fs::read_to_string(path)
+            .map_err(|error| format!("Cannot read VM configuration '{}': {error}", path.display()))?;
+        Self::from_json(&text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_configuration_json_round_trip_preserves_android_profile() {
+        let source = VmConfig {
+            disk_path: "AccessibleAndroid.qcow2".to_owned(),
+            iso_path: "AccessibleAndroid.iso".to_owned(),
+            ..VmConfig::default()
+        };
+        let json = source.to_json_pretty().unwrap();
+        let restored = VmConfig::from_json(&json).unwrap();
+        assert_eq!(restored.schema_version, VM_CONFIG_SCHEMA_VERSION);
+        assert_eq!(restored.profile, GuestProfile::AccessibleAndroid);
+        assert_eq!(restored.architecture, Architecture::X86_64);
+        assert_eq!(restored.disk_path, "AccessibleAndroid.qcow2");
+        assert_eq!(restored.iso_path, "AccessibleAndroid.iso");
+        assert_eq!(restored.memory_mib, 8192);
+        assert_eq!(restored.cpu_count, 6);
+    }
+
+    #[test]
+    fn normalization_repairs_invalid_resource_values() {
+        let mut config = VmConfig {
+            name: String::new(),
+            memory_mib: 1,
+            cpu_count: 99,
+            qmp_port: 0,
+            ..VmConfig::default()
+        };
+        config.normalize();
+        assert_eq!(config.name, "AccessibleAndroid");
+        assert_eq!(config.memory_mib, 1024);
+        assert_eq!(config.cpu_count, 32);
+        assert_eq!(config.qmp_port, 4444);
+    }
+
+    #[test]
+    fn rejects_future_configuration_schema() {
+        let json = r#"{
+            "schema_version": 999,
+            "name": "Future VM"
+        }"#;
+        assert!(VmConfig::from_json(json).is_err());
     }
 }
