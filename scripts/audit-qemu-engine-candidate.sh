@@ -25,8 +25,13 @@ if [[ -e "$SOURCE_DIR" && ! -d "$SOURCE_DIR/.git" ]]; then
   exit 3
 fi
 
+# Use a plain repository rather than a promisor/partial clone. A partial clone
+# associates missing objects with one remote and can incorrectly ask official
+# QEMU for objects that exist only in the UTM fork during a cherry-pick audit.
 if [[ ! -d "$SOURCE_DIR/.git" ]]; then
-  git clone --filter=blob:none --no-checkout "$QEMU_UPSTREAM_REPOSITORY" "$SOURCE_DIR"
+  mkdir -p "$SOURCE_DIR"
+  git -C "$SOURCE_DIR" init
+  git -C "$SOURCE_DIR" remote add origin "$QEMU_UPSTREAM_REPOSITORY"
 fi
 
 git -C "$SOURCE_DIR" remote set-url origin "$QEMU_UPSTREAM_REPOSITORY"
@@ -45,7 +50,9 @@ else
   git -C "$SOURCE_DIR" remote add utm "$UTM_QEMU_REPOSITORY"
 fi
 
-git -C "$SOURCE_DIR" fetch --force --depth=1 utm "$QEMU_UTM_CANDIDATE_BLOB_UNMAP_REV"
+# Depth 2 is required because cherry-pick computes the candidate diff against
+# its parent. Fetch both from the UTM remote so object ownership is unambiguous.
+git -C "$SOURCE_DIR" fetch --force --depth=2 utm "$QEMU_UTM_CANDIDATE_BLOB_UNMAP_REV"
 
 {
   echo "AccessibleQEMU Engine candidate audit"
