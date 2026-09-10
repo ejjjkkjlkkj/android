@@ -12,6 +12,10 @@ TARGET_NO_KERNEL := false
 TARGET_PREBUILT_KERNEL := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/kernel
 TARGET_BOOTLOADER_BOARD_NAME := accessible_x86_64
 BOARD_USES_GENERIC_KERNEL_IMAGE := true
+BOARD_USES_RECOVERY_AS_BOOT :=
+BOARD_MOVE_RECOVERY_RESOURCES_TO_VENDOR_BOOT := true
+BOARD_EXCLUDE_KERNEL_FROM_RECOVERY_IMAGE :=
+BOARD_MOVE_GSI_AVB_KEYS_TO_VENDOR_BOOT := true
 
 # Android 13+ GKI layout: boot is kernel-only, the generic ramdisk is in
 # init_boot, and device/VM first-stage modules live in vendor_boot.
