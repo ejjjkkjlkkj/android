@@ -1,4 +1,5 @@
 mod config;
+mod dialogs;
 mod qemu;
 mod qmp;
 
@@ -237,6 +238,20 @@ impl AccessibleQemuApp {
         }
     }
 
+    fn choose_and_load_config(&mut self) {
+        if let Some(path) = dialogs::pick_configuration() {
+            self.config_path = path;
+            self.load_config();
+        }
+    }
+
+    fn choose_and_save_config(&mut self) {
+        if let Some(path) = dialogs::save_configuration("accessible-android-17.aqemu.json") {
+            self.config_path = path;
+            self.save_config();
+        }
+    }
+
     fn validate_config(&mut self) {
         self.status = match self.config.validate() {
             Ok(()) => "Configuration validation passed.".to_owned(),
@@ -260,37 +275,58 @@ impl AccessibleQemuApp {
         ui.add_space(8.0);
 
         egui::Grid::new("vm_configuration_grid")
-            .num_columns(2)
+            .num_columns(3)
             .spacing([16.0, 10.0])
             .show(ui, |ui| {
                 let label = ui.label("Virtual machine name");
                 ui.text_edit_singleline(&mut self.config.name)
                     .on_hover_text("Accessible name stored in the VM configuration")
                     .labelled_by(label.id);
+                ui.label("");
                 ui.end_row();
 
                 let label = ui.label("QEMU executable");
                 ui.text_edit_singleline(&mut self.config.qemu_binary)
                     .on_hover_text("Path or command name for qemu-system-x86_64")
                     .labelled_by(label.id);
+                if ui.button("Browse for QEMU executable").clicked() {
+                    if let Some(path) = dialogs::pick_qemu_executable() {
+                        self.config.qemu_binary = path;
+                    }
+                }
                 ui.end_row();
 
                 let label = ui.label("Android ISO path");
                 ui.text_edit_singleline(&mut self.config.iso_path)
                     .on_hover_text("Optional path to the AccessibleAndroid bootable ISO")
                     .labelled_by(label.id);
+                if ui.button("Browse for Android ISO").clicked() {
+                    if let Some(path) = dialogs::pick_android_iso() {
+                        self.config.iso_path = path;
+                    }
+                }
                 ui.end_row();
 
                 let label = ui.label("Virtual disk path");
                 ui.text_edit_singleline(&mut self.config.disk_path)
                     .on_hover_text("RAW/IMG, QCOW2, VDI or VMDK disk. AccessibleAndroid uses PCI 00:06.0")
                     .labelled_by(label.id);
+                if ui.button("Browse for virtual disk").clicked() {
+                    if let Some(path) = dialogs::pick_virtual_disk() {
+                        self.config.disk_path = path;
+                    }
+                }
                 ui.end_row();
 
                 let label = ui.label("Serial log path");
                 ui.text_edit_singleline(&mut self.config.serial_log_path)
                     .on_hover_text("Text log for the guest serial console; usable when the graphical display fails")
                     .labelled_by(label.id);
+                if ui.button("Choose serial log file").clicked() {
+                    if let Some(path) = dialogs::choose_serial_log("accessible-qemu-serial.log") {
+                        self.config.serial_log_path = path;
+                    }
+                }
                 ui.end_row();
 
                 let label = ui.label("Memory");
@@ -300,6 +336,7 @@ impl AccessibleQemuApp {
                         .step_by(512.0),
                 )
                 .labelled_by(label.id);
+                ui.label("");
                 ui.end_row();
 
                 let label = ui.label("Processors");
@@ -308,6 +345,7 @@ impl AccessibleQemuApp {
                         .text("Virtual processor count"),
                 )
                 .labelled_by(label.id);
+                ui.label("");
                 ui.end_row();
 
                 let label = ui.label("QMP local port");
@@ -317,12 +355,18 @@ impl AccessibleQemuApp {
                         .speed(1.0),
                 )
                 .labelled_by(label.id);
+                ui.label("");
                 ui.end_row();
 
                 let label = ui.label("Configuration file path");
                 ui.text_edit_singleline(&mut self.config_path)
                     .on_hover_text("JSON file used to save or load this VM configuration")
                     .labelled_by(label.id);
+                if ui.button("Browse for configuration file").clicked() {
+                    if let Some(path) = dialogs::pick_configuration() {
+                        self.config_path = path;
+                    }
+                }
                 ui.end_row();
             });
 
@@ -349,10 +393,22 @@ impl AccessibleQemuApp {
                 self.save_config();
             }
             if ui
+                .add_enabled(!running, egui::Button::new("Save configuration as"))
+                .clicked()
+            {
+                self.choose_and_save_config();
+            }
+            if ui
                 .add_enabled(!running, egui::Button::new("Load configuration"))
                 .clicked()
             {
                 self.load_config();
+            }
+            if ui
+                .add_enabled(!running, egui::Button::new("Open configuration file"))
+                .clicked()
+            {
+                self.choose_and_load_config();
             }
         });
 
@@ -425,7 +481,7 @@ impl AccessibleQemuApp {
         ui.add_space(16.0);
         ui.heading("Keyboard navigation");
         ui.label(
-            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust values, and Enter or Space to activate the focused control. Configuration and VM lifecycle operations are available without a mouse.",
+            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust values, and Enter or Space to activate the focused control. Native Browse/Open/Save dialogs are available so paths do not have to be typed manually.",
         );
     }
 }
