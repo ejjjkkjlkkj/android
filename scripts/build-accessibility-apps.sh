@@ -2,14 +2,17 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_ROOT="$ROOT_DIR"
+export PROJECT_ROOT="$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/workspace.env"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/toolchain.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/accessibility-upstreams.env"
 
 SRC_ROOT="$ACCESSIBILITY_SRC_DIR"
 SDK_ROOT="$ANDROID_SDK_ROOT"
+GRADLE_ROOT="$ROOT_DIR/.work/tools/gradle-$TALKBACK_GRADLE_VERSION"
 DEST_DIR="$AOSP_DIR/vendor/accessibledroid/generated-apps"
 
 fail() {
@@ -21,12 +24,17 @@ fail() {
 [[ -d "$SRC_ROOT/talkback/.git" ]] || fail "TalkBack source missing; run scripts/sync-accessibility-upstreams.sh"
 [[ -d "$SRC_ROOT/espeak-ng/.git" ]] || fail "eSpeak NG source missing; run scripts/sync-accessibility-upstreams.sh"
 [[ -d "$SDK_ROOT" ]] || fail "Android SDK not found at $SDK_ROOT; run scripts/bootstrap-android-sdk.sh"
+[[ -x "$GRADLE_ROOT/bin/gradle" ]] || fail "Gradle $TALKBACK_GRADLE_VERSION not found; run scripts/bootstrap-android-sdk.sh"
 
 [[ "$(git -C "$SRC_ROOT/talkback" rev-parse HEAD)" == "$TALKBACK_REV" ]] || fail "TalkBack source revision drift"
 [[ "$(git -C "$SRC_ROOT/espeak-ng" rev-parse HEAD)" == "$ESPEAK_NG_REV" ]] || fail "eSpeak NG source revision drift"
 
 AAPT2="$(find "$SDK_ROOT/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -n 1 || true)"
 [[ -n "$AAPT2" && -x "$AAPT2" ]] || fail "aapt2 not found in Android SDK build-tools"
+
+export ANDROID_HOME="$SDK_ROOT"
+export ANDROID_SDK_ROOT="$SDK_ROOT"
+export PATH="$GRADLE_ROOT/bin:$SDK_ROOT/platform-tools:$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
 mkdir -p "$DEST_DIR"
 rm -f "$DEST_DIR/talkback.apk" "$DEST_DIR/espeak-ng.apk"
