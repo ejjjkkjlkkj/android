@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT_ROOT="$ROOT"
+export PROJECT_ROOT="$ROOT"
 # shellcheck disable=SC1091
 source "$ROOT/config/workspace.env"
 # shellcheck disable=SC1091
