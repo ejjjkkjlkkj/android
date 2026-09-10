@@ -1,4 +1,6 @@
 use eframe::egui;
+use std::env;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 struct AccessibleQemuApp {
@@ -9,12 +11,13 @@ struct AccessibleQemuApp {
     cpu_count: u32,
     status: String,
     child: Option<Child>,
+    autostart_pending: bool,
 }
 
 impl Default for AccessibleQemuApp {
     fn default() -> Self {
         Self {
-            qemu_binary: "qemu-system-x86_64".to_owned(),
+            qemu_binary: default_qemu_binary(),
             iso_path: String::new(),
             disk_path: String::new(),
             memory_mib: 4096,
@@ -22,8 +25,78 @@ impl Default for AccessibleQemuApp {
             status: "Stopped. Configure the virtual machine, then choose Start virtual machine."
                 .to_owned(),
             child: None,
+            autostart_pending: false,
         }
     }
+}
+
+fn default_qemu_binary() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = [
+            r"C:\Program Files\qemu\qemu-system-x86_64.exe",
+            r"C:\Program Files (x86)\qemu\qemu-system-x86_64.exe",
+        ];
+        for candidate in candidates {
+            if Path::new(candidate).is_file() {
+                return candidate.to_owned();
+            }
+        }
+        "qemu-system-x86_64.exe".to_owned()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        "qemu-system-x86_64".to_owned()
+    }
+}
+
+fn app_from_args() -> AccessibleQemuApp {
+    let mut app = AccessibleQemuApp::default();
+    let mut args = env::args().skip(1);
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--iso" => {
+                if let Some(value) = args.next() {
+                    app.iso_path = value;
+                }
+            }
+            "--disk" => {
+                if let Some(value) = args.next() {
+                    app.disk_path = value;
+                }
+            }
+            "--qemu" => {
+                if let Some(value) = args.next() {
+                    app.qemu_binary = value;
+                }
+            }
+            "--memory" => {
+                if let Some(value) = args.next() {
+                    if let Ok(parsed) = value.parse::<u32>() {
+                        app.memory_mib = parsed.clamp(1024, 32768);
+                    }
+                }
+            }
+            "--cpus" => {
+                if let Some(value) = args.next() {
+                    if let Ok(parsed) = value.parse::<u32>() {
+                        app.cpu_count = parsed.clamp(1, 16);
+                    }
+                }
+            }
+            "--autostart" => app.autostart_pending = true,
+            "--help" | "-h" => {
+                println!(
+                    "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --autostart        Start VM immediately after opening GUI\n"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    app
 }
 
 impl AccessibleQemuApp {
@@ -73,6 +146,16 @@ impl AccessibleQemuApp {
         if self.iso_path.trim().is_empty() && self.disk_path.trim().is_empty() {
             self.status =
                 "Cannot start: provide an ISO path, a virtual disk path, or both.".to_owned();
+            return;
+        }
+
+        if !self.iso_path.trim().is_empty() && !Path::new(self.iso_path.trim()).is_file() {
+            self.status = format!("Cannot start: ISO not found: {}", self.iso_path.trim());
+            return;
+        }
+
+        if !self.disk_path.trim().is_empty() && !Path::new(self.disk_path.trim()).is_file() {
+            self.status = format!("Cannot start: virtual disk not found: {}", self.disk_path.trim());
             return;
         }
 
@@ -146,6 +229,11 @@ impl AccessibleQemuApp {
 impl eframe::App for AccessibleQemuApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh_process_state();
+
+        if self.autostart_pending {
+            self.autostart_pending = false;
+            self.start_vm();
+        }
 
         egui::TopBottomPanel::top("application_header").show(ctx, |ui| {
             ui.heading("AccessibleQEMU");
@@ -232,10 +320,11 @@ impl eframe::App for AccessibleQemuApp {
 }
 
 fn main() -> eframe::Result<()> {
+    let app = app_from_args();
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AccessibleQEMU",
         options,
-        Box::new(|_creation_context| Ok(Box::new(AccessibleQemuApp::default()))),
+        Box::new(move |_creation_context| Ok(Box::new(app))),
     )
 }
