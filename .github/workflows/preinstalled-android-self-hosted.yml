@@ -1,0 +1,224 @@
+name: AccessibleAndroid 17 preinstalled VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_host:
+        description: 'Install/update required Ubuntu packages before the build'
+        required: false
+        default: false
+        type: boolean
+      android_build_jobs:
+        description: 'AOSP parallel build jobs'
+        required: false
+        default: '16'
+        type: string
+      kernel_sync_jobs:
+        description: 'Android kernel repo sync parallel jobs'
+        required: false
+        default: '8'
+        type: string
+      export_all_formats:
+        description: 'Also export VDI and VMDK in addition to QCOW2'
+        required: false
+        default: false
+        type: boolean
+      upload_disk_artifact:
+        description: 'Upload the multi-GB QCOW2 disk as a GitHub Actions artifact'
+        required: false
+        default: false
+        type: boolean
+      allow_below_recommended_resources:
+        description: 'Proceed even when the self-hosted builder is below current AOSP recommendations'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-android17-preinstalled-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-boot:
+    name: Build Android 17 disk and prove BIOS UEFI framework boot
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 720
+    env:
+      ANDROID_BUILD_JOBS: ${{ inputs.android_build_jobs }}
+      KERNEL_SYNC_JOBS: ${{ inputs.kernel_sync_jobs }}
+      BOOT_TIMEOUT_SECONDS: '360'
+    steps:
+      - name: Checkout project without deleting the persistent AOSP workspace
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+
+      - name: Validate builder resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          test "$(uname -m)" = x86_64
+          nproc
+          free -h || true
+          df -h .
+
+          ram_kib=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+          ram_gib=$((ram_kib / 1024 / 1024))
+          free_kib=$(df -Pk . | awk 'NR==2 {print $4}')
+          free_gib=$((free_kib / 1024 / 1024))
+
+          if [[ -d .work/aosp/.repo ]]; then
+            required_free_gib=150
+            workspace_state=incremental
+          else
+            required_free_gib=400
+            workspace_state=fresh
+          fi
+
+          echo "AOSP_WORKSPACE_STATE=$workspace_state"
+          echo "RAM_GIB=$ram_gib"
+          echo "FREE_DISK_GIB=$free_gib"
+          echo "REQUIRED_FREE_DISK_GIB=$required_free_gib"
+
+          if (( ram_gib < 64 || free_gib < required_free_gib )); then
+            if [[ '${{ inputs.allow_below_recommended_resources }}' != 'true' ]]; then
+              echo 'ERROR: builder is below the current AOSP recommended resource envelope.' >&2
+              echo 'Fresh builds require 400 GiB free; incremental builds keep a 150 GiB build reserve; 64 GiB RAM is recommended.' >&2
+              exit 1
+            fi
+            echo 'WARNING: continuing below the recommended AOSP resource envelope.' >&2
+          fi
+
+      - name: Optional host bootstrap
+        if: inputs.bootstrap_host
+        shell: bash
+        run: bash scripts/bootstrap-host.sh
+
+      - name: Verify critical host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4)
+          missing=0
+          for command_name in "${required[@]}"; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              printf '%-24s %s\n' "$command_name" "$(command -v "$command_name")"
+            else
+              echo "MISSING: $command_name" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          if (( EUID != 0 )); then
+            sudo -n true
+          fi
+
+      - name: Select QEMU acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo 'QEMU_ACCEL=kvm' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL = kvm'
+          else
+            echo 'QEMU_ACCEL=tcg' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL = tcg'
+          fi
+
+      - name: Build AOSP Android 17 accessibility edition from synchronized sources
+        shell: bash
+        env:
+          BOOTSTRAP_HOST: '0'
+          BOOTSTRAP_SDK: '1'
+          BUILD_KERNEL: '1'
+        run: bash scripts/build-from-zero.sh accessible-aosp
+
+      - name: Build BIOS and UEFI preinstalled GPT disk
+        shell: bash
+        env:
+          EXPORT_ALL_FORMATS: ${{ inputs.export_all_formats && '1' || '0' }}
+        run: bash scripts/build-preinstalled-disk.sh
+
+      - name: Boot preinstalled disk in BIOS and UEFI through QEMU
+        shell: bash
+        run: TEST_MODE=all bash scripts/test-preinstalled-disk-qemu.sh
+
+      - name: Record full build provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "qemu_accel=${QEMU_ACCEL:-unknown}"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            cat config/upstream.env
+            echo
+            cat config/kernel.env
+            echo
+            cat config/vm.env
+          } > .work/logs/preinstalled-build-provenance.txt
+          if [[ -f config/kernel-pinned-manifest.xml ]]; then
+            cp config/kernel-pinned-manifest.xml .work/logs/kernel-pinned-manifest.xml
+          fi
+
+      - name: Publish validation summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '## AccessibleAndroid 17 preinstalled VM'
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo "QEMU acceleration: ${QEMU_ACCEL:-unknown}"
+            echo
+            if [[ -f .work/vm/preinstalled/SHA256SUMS ]]; then
+              echo '### Disk artifacts'
+              echo '```text'
+              cat .work/vm/preinstalled/SHA256SUMS
+              echo '```'
+            fi
+            if [[ -f .work/logs/preinstalled-android-bios.log ]]; then
+              echo 'BIOS serial log produced.'
+            fi
+            if [[ -f .work/logs/preinstalled-android-uefi.log ]]; then
+              echo 'UEFI serial log produced.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs manifests and compact metadata
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-validation-${{ github.run_id }}
+          path: |
+            .work/logs/**
+            .work/vm/preinstalled/DISK-MANIFEST.txt
+            .work/vm/preinstalled/GPT.txt
+            .work/vm/preinstalled/SHA256SUMS
+            .work/vm/*.iso.sha256
+            config/kernel-pinned-manifest.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Optionally upload QCOW2 disk
+        if: inputs.upload_disk_artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-qcow2-${{ github.run_id }}
+          path: .work/vm/preinstalled/*.qcow2
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
