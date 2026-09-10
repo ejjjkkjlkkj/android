@@ -1,0 +1,22 @@
+// APKs in this directory are generated from pinned open-source projects by
+// scripts/build-accessibility-apps.sh. APK binaries are never committed here.
+
+android_app_import {
+    name: "AccessibleTalkBack",
+    apk: "talkback.apk",
+    certificate: "platform",
+    privileged: true,
+    dex_preopt: {
+        enabled: false,
+    },
+}
+
+android_app_import {
+    name: "AccessibleEspeakTts",
+    apk: "espeak-ng.apk",
+    certificate: "platform",
+    privileged: true,
+    dex_preopt: {
+        enabled: false,
+    },
+}
