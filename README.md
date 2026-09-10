@@ -29,6 +29,27 @@ The primary deliverable is a real Android PC/VM distribution:
 
 Android-x86's old public ISO releases are useful as implementation references for PC boot/install, but they are not used as the final Android base.
 
+## Editions
+
+Two build editions are defined:
+
+### `accessible-aosp`
+
+Open Android edition intended to be redistributable without proprietary Google applications.
+
+### `accessible-gms`
+
+Google Play-ready edition. It selects a dedicated Android product and can integrate Google Play Store / Google Play services only when the builder supplies an authorized external GMS bundle.
+
+GMS is not part of AOSP, so this repository does not contain or automatically download proprietary Google APKs. See `docs/GMS.md`.
+
+Build entry points:
+
+```bash
+./scripts/build-edition.sh accessible-aosp
+GMS_BUNDLE_DIR=/secure/authorized-gms ./scripts/build-edition.sh accessible-gms
+```
+
 ## Accessibility-first requirements
 
 A release cannot ship unless a blind user can start and operate it without sight:
@@ -55,24 +76,43 @@ SHA256SUMS
 build-manifest.json
 ```
 
+A separately authorized GMS build may use a distinct release name such as:
+
+```text
+AccessibleAndroid-17-GMS-x86_64.iso
+```
+
 ## Build model
 
 AOSP is too large to vendor directly into this small Git repository. This repository contains the manifest/orchestration, PC device layer, installer, accessibility overlay and CI. Build hosts synchronize the upstream Android source and then apply this distribution layer.
 
 ```text
 android/
-├── config/                 version and build configuration
-├── docs/                   architecture and accessibility contract
+├── config/                 version, product and edition configuration
+├── docs/                   architecture, GMS and accessibility contracts
 ├── installer/              boot/install environment
 ├── scripts/                source, build, packaging and VM validation
 ├── vendor/accessibledroid/ product and accessibility overlay
 └── .github/workflows/      CI and large self-hosted builds
 ```
 
+Private/licensed GMS payloads must stay outside this repository. CI explicitly checks this boundary.
+
+## Runtime validation
+
+Once an installed VM is running and reachable through ADB:
+
+```bash
+./scripts/validate-vm-runtime.sh accessible-aosp
+./scripts/validate-vm-runtime.sh accessible-gms
+```
+
+The GMS validation requires both `com.google.android.gms` and `com.android.vending`, while both editions require boot completion, PackageManager, an enabled accessibility service, a configured TTS engine and persistent `/data`.
+
 ## Build direction
 
-The PC image must expose a real `iso_img`-style build product and boot independently of Android Studio. Cuttlefish remains useful only as an upstream framework test reference; it is no longer the final deliverable.
+The PC image must expose a real `iso_img`-style build product and boot independently of Android Studio. Cuttlefish remains useful only as an upstream framework test reference; it is not the final deliverable.
 
 ## Status
 
-Architecture pivoted to an installable Android 17 x86_64 VM OS. The next implementation milestone is the Android 17 PC BSP + ISO boot chain, followed by the spoken installer and VM compatibility matrix.
+Android 17 installable-VM architecture is established. AOSP/GMS editions, private GMS input validation, repository licensing guard and VM runtime accessibility/Play Store checks are now scaffolded. The next implementation milestone is the Android 17 PC BSP + ISO boot chain, then the spoken installer and full QEMU/VirtualBox/VMware compatibility matrix.
