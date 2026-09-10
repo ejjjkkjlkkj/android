@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+export PATH=/bin
+
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+exec </dev/ttyS0 >/dev/ttyS0 2>&1
+
+echo
+echo "ACCESSIBLE_ANDROID_KERNEL_BOOT=PASS"
+echo "AccessibleAndroid kernel smoke environment is running."
+echo "This console is intentionally text-only and screen-reader friendly."
+echo "Kernel:"
+cat /proc/version || true
+echo "CPU:"
+grep -m1 -E 'model name|Hardware' /proc/cpuinfo || true
+echo "Available block devices:"
+ls /sys/class/block 2>/dev/null || true
+echo "SMOKE_CONSOLE=READY"
+echo "Type 'poweroff -f' to stop the virtual machine."
+
+exec /bin/sh
