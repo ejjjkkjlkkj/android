@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/editions.env"
 
-AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
 EDITION="${1:-$DEFAULT_EDITION}"
 GMS_STAGE_DIR="$AOSP_DIR/vendor/accessibledroid/private-gms"
 GMS_STAGED=0
@@ -38,5 +40,6 @@ esac
 
 echo "EDITION = $ACCESSIBLE_ANDROID_EDITION"
 echo "PRODUCT = $PRODUCT_NAME"
+echo "AOSP_DIR = $AOSP_DIR"
 
 "$ROOT_DIR/scripts/build-pc-iso.sh"
