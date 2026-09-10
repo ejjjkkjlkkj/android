@@ -2,10 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/pc-upstreams.env"
-
-AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
 
 [[ -d "$AOSP_DIR/.repo" ]] || {
   echo "ERROR: AOSP checkout not found at $AOSP_DIR" >&2
@@ -51,3 +52,4 @@ sync_repo "PC x86_64 device layer" "$PC_X86_64_URL" "$PC_X86_64_REV" "$AOSP_DIR/
 sync_repo "AAropa installer/initrd" "$PC_INSTALLER_URL" "$PC_INSTALLER_REV" "$AOSP_DIR/bootable/aaropa"
 
 echo "PC_UPSTREAMS = VERIFIED"
+echo "AOSP_DIR = $AOSP_DIR"
