@@ -11,6 +11,7 @@ source "$ROOT_DIR/config/editions.env"
 EDITION="${1:-$DEFAULT_EDITION}"
 BOOTSTRAP_HOST="${BOOTSTRAP_HOST:-0}"
 BOOTSTRAP_SDK="${BOOTSTRAP_SDK:-1}"
+BUILD_KERNEL="${BUILD_KERNEL:-1}"
 
 case "$EDITION" in
   "$AOSP_EDITION"|"$GMS_EDITION") ;;
@@ -29,6 +30,8 @@ echo "PROJECT_ROOT = $PROJECT_ROOT"
 echo "AOSP_DIR = $AOSP_DIR"
 echo "ACCESSIBILITY_SRC_DIR = $ACCESSIBILITY_SRC_DIR"
 echo "ANDROID_SDK_ROOT = $ANDROID_SDK_ROOT"
+echo "KERNEL_SRC_DIR = $KERNEL_SRC_DIR"
+echo "KERNEL_DIST_DIR = $KERNEL_DIST_DIR"
 echo "VM_ARTIFACT_DIR = $VM_ARTIFACT_DIR"
 echo "EDITION = $EDITION"
 
@@ -44,6 +47,13 @@ fi
 "$ROOT_DIR/scripts/sync-pc-upstreams.sh"
 "$ROOT_DIR/scripts/sync-accessibility-upstreams.sh"
 "$ROOT_DIR/scripts/install-device-tree.sh"
+
+if [[ "$BUILD_KERNEL" == "1" ]]; then
+  "$ROOT_DIR/scripts/sync-kernel.sh"
+  "$ROOT_DIR/scripts/build-kernel.sh"
+fi
+"$ROOT_DIR/scripts/stage-kernel.sh"
+
 "$ROOT_DIR/scripts/build-accessibility-apps.sh"
 "$ROOT_DIR/scripts/build-edition.sh" "$EDITION"
 
