@@ -126,18 +126,19 @@ EOF
   echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
 } > "$GRUB_OUT/PROVENANCE.txt"
 
+sha_tmp="$GRUB_OUT/.SHA256SUMS.tmp"
 (
   cd "$GRUB_OUT"
-  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+  find . -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name '.SHA256SUMS.tmp' -print0 \
     | sort -z \
-    | xargs -0 sha256sum > SHA256SUMS
+    | xargs -0 sha256sum > "$sha_tmp"
 )
+mv -f "$sha_tmp" "$GRUB_OUT/SHA256SUMS"
 
 [[ -s "$GRUB_OUT/kernel" && -s "$GRUB_OUT/android-initrd.img" ]] || {
   echo "ERROR: direct boot assets are incomplete" >&2
   exit 9
 }
-
 echo "ANDROID_GRUB_BOOT_ASSETS = PASS"
 echo "KERNEL = $GRUB_OUT/kernel"
 echo "INITRD = $GRUB_OUT/android-initrd.img"
