@@ -27,7 +27,8 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 # diagnostics and recovery tooling after the real vendor partition is mounted.
 PRODUCT_COPY_FILES += \
     device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/first_stage_ramdisk/fstab.accessible_x86_64 \
-    device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64
+    device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64 \
+    device/accessibledroid/accessible_x86_64/init.accessibledroid.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.accessibledroid.rc
 
 # Accessibility is part of the base system and is independent of GMS.
 $(call inherit-product, vendor/accessibledroid/product/accessibility.mk)
