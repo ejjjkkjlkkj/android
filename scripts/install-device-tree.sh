@@ -19,7 +19,12 @@ rsync -a --delete "$ROOT_DIR/device/accessibledroid/" "$AOSP_DIR/device/accessib
 
 if [[ -d "$ROOT_DIR/vendor/accessibledroid" ]]; then
   mkdir -p "$AOSP_DIR/vendor/accessibledroid"
-  rsync -a --delete --exclude private-gms "$ROOT_DIR/vendor/accessibledroid/" "$AOSP_DIR/vendor/accessibledroid/"
+  rsync -a --delete \
+    --exclude private-gms \
+    --exclude 'generated-apps/*.apk' \
+    --exclude 'generated-apps/*.generated' \
+    "$ROOT_DIR/vendor/accessibledroid/" \
+    "$AOSP_DIR/vendor/accessibledroid/"
 fi
 
 echo "ACCESSIBLE_DEVICE_TREE = INSTALLED"
