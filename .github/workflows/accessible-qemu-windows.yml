@@ -96,6 +96,8 @@ jobs:
             'format=qcow2',
             'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x7',
             'virtio-rng-pci,bus=pcie.0,addr=0x8',
+            'id=accessible-cdrom-backend',
+            'ide-cd,bus=ide.0,drive=accessible-cdrom-backend,id=accessible-cdrom,bootindex=0',
             'tcp:127.0.0.1:4444,server=on,wait=off'
           )) {
             if ($command -notmatch [regex]::Escape($required)) {
