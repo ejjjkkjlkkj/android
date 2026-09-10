@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 pub const OS_DISK_PCI_ADDRESS: &str = "0x6";
 pub const NETWORK_PCI_ADDRESS: &str = "0x7";
 pub const RNG_PCI_ADDRESS: &str = "0x8";
+pub const CDROM_BACKEND_ID: &str = "accessible-cdrom-backend";
+pub const CDROM_DEVICE_ID: &str = "accessible-cdrom";
 
 #[derive(Clone, Debug)]
 pub struct QemuLaunchPlan {
@@ -83,14 +85,29 @@ pub fn build_launch_plan(config: &VmConfig) -> Result<QemuLaunchPlan, String> {
         "virtio-rng-pci,bus=pcie.0,addr={RNG_PCI_ADDRESS}"
     ));
 
+    // Keep an explicit removable CD-ROM device even when no ISO is inserted.
+    // This gives QMP a stable qdev id for accessible insert/eject operations.
+    args.push("-drive".to_owned());
+    let mut cdrom_drive = format!(
+        "if=none,media=cdrom,id={CDROM_BACKEND_ID},readonly=on,format=raw"
+    );
     if !config.iso_path.trim().is_empty() {
-        args.push("-cdrom".to_owned());
-        args.push(config.iso_path.trim().to_owned());
-        args.push("-boot".to_owned());
-        args.push("menu=on,order=d".to_owned());
-    } else {
-        args.push("-boot".to_owned());
+        cdrom_drive.push_str(&format!(
+            ",file={}",
+            qemu_keyval_escape(config.iso_path.trim())
+        ));
+    }
+    args.push(cdrom_drive);
+    args.push("-device".to_owned());
+    args.push(format!(
+        "ide-cd,bus=ide.0,drive={CDROM_BACKEND_ID},id={CDROM_DEVICE_ID},bootindex=0"
+    ));
+
+    args.push("-boot".to_owned());
+    if config.iso_path.trim().is_empty() {
         args.push("menu=on,order=c".to_owned());
+    } else {
+        args.push("menu=on,order=d".to_owned());
     }
 
     Ok(QemuLaunchPlan {
