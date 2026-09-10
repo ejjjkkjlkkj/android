@@ -12,7 +12,7 @@ product    /product    ext4 noatime,ro,errors=panic wait,logical,first_stage_mou
 vendor     /vendor     ext4 noatime,ro,errors=panic wait,logical,first_stage_mount,slotselect,avb
 
 /dev/block/by-name/metadata /metadata ext4 nodev,noatime,nosuid,errors=panic wait,check,formattable,first_stage_mount
-/dev/block/by-name/userdata /data     ext4 nodev,noatime,nosuid,errors=panic latemount,wait,check,quota,formattable,checkpoint=block
+/dev/block/by-name/userdata /data     ext4 nodev,noatime,nosuid,errors=panic latemount,wait,check,quota,formattable,fileencryption=aes-256-xts:aes-256-cts,keydirectory=/metadata/vold/metadata_encryption,checkpoint=block
 /dev/block/by-name/misc     /misc     emmc defaults defaults
 
 /dev/block/zram0 none swap defaults zramsize=50%
