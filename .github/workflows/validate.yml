@@ -106,6 +106,7 @@ jobs:
           grep -Fq 'BOARD_BOOT_HEADER_VERSION := 4' "$board"
           grep -Fq 'BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE := 8388608' "$board"
           grep -Fq 'BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE := 67108864' "$board"
+          grep -Fq 'BOARD_USERDATAIMAGE_PARTITION_SIZE := 8589934592' "$board"
           grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' "$board"
           grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' "$board"
           grep -Fq 'BOARD_SUPER_PARTITION_SIZE := 7516192768' "$board"
@@ -125,8 +126,24 @@ jobs:
           done
           grep -Fq 'package-android-payload-iso.sh' scripts/build-pc-iso.sh
           grep -Fq 'NON_DESTRUCTIVE_INSTALLER_PREVIEW' scripts/package-android-payload-iso.sh
+          grep -Fq 'android-initrd.img' scripts/package-android-payload-iso.sh
           if grep -R -n -E --include='*.sh' '(^|[[:space:]])(m|make)[[:space:]]+iso_img([[:space:]]|$)' scripts; then
             echo 'ERROR: legacy AAropa/Android-x86 iso_img build path is forbidden.' >&2
             exit 1
           fi
           echo 'ANDROID_NATIVE_IMAGE_PIPELINE = PASS'
+
+      - name: Validate deterministic preinstalled disk geometry
+        run: |
+          set -euo pipefail
+          source config/vm.env
+          test "$VM_DISK_SIZE_GIB" = "16"
+          test "$VM_SUPER_SIZE_MIB" = "7168"
+          test "$VM_USERDATA_SIZE_MIB" = "8192"
+          test "$VM_BIOS_GRUB_SIZE_MIB" -ge 1
+          test "$VM_OS_DISK_PCI_ADDR" = "0x6"
+          test "$ANDROID_BOOT_DEVICES" = "pci0000:00/0000:00:06.0"
+          grep -Fq 'androidboot.boot_devices=pci0000:00/0000:00:06.0' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'virtio-blk-pci' scripts/build-preinstalled-disk.sh || true
+          PLAN_ONLY=1 bash scripts/build-preinstalled-disk.sh
+          echo 'PREINSTALLED_DISK_CONTRACT = PASS'
