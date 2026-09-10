@@ -9,7 +9,9 @@ source "$ROOT_DIR/config/workspace.env"
 source "$ROOT_DIR/config/upstream.env"
 
 PRODUCT="${PRODUCT_NAME:-accessible_android_x86_64}"
+RELEASE_CONFIG="${ANDROID_RELEASE_CONFIG:-aosp_current}"
 VARIANT="${BUILD_VARIANT:-userdebug}"
+LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"
 
 if [[ ! -d "$AOSP_DIR/build" ]]; then
   echo "ERROR: AOSP tree not found at $AOSP_DIR" >&2
@@ -21,9 +23,10 @@ cd "$AOSP_DIR"
 # shellcheck disable=SC1091
 source build/envsetup.sh
 
-if ! lunch "${PRODUCT}-${VARIANT}"; then
+echo "LUNCH_TARGET = $LUNCH_TARGET"
+if ! lunch "$LUNCH_TARGET"; then
   cat >&2 <<EOF
-ERROR: product ${PRODUCT}-${VARIANT} is not registered yet.
+ERROR: product $LUNCH_TARGET is not registered or compatible with the current Android release configuration.
 The Android 17 PC BSP/device tree must be installed before ISO compilation.
 This script intentionally refuses to fall back to Cuttlefish because the project target is a bootable/installable VM OS.
 EOF
