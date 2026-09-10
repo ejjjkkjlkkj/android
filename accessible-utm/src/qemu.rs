@@ -69,6 +69,25 @@ pub fn machine(architecture: Architecture) -> &'static str {
     }
 }
 
+pub fn host_audio_driver() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "dsound"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "pa"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "coreaudio"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        "sdl"
+    }
+}
+
 pub fn disk_format(path: &str) -> Result<&'static str, String> {
     let extension = Path::new(path)
         .extension()
@@ -112,6 +131,21 @@ pub fn validate_media(config: &VmConfig) -> Result<(), String> {
         return Err(format!("Firmware not found: {}", config.firmware_path.trim()));
     }
     Ok(())
+}
+
+fn add_accessible_android_devices(args: &mut Vec<String>) {
+    args.extend([
+        "-vga".to_owned(),
+        "virtio".to_owned(),
+        "-device".to_owned(),
+        "qemu-xhci,id=xhci".to_owned(),
+        "-device".to_owned(),
+        "usb-kbd,bus=xhci.0".to_owned(),
+        "-device".to_owned(),
+        "usb-tablet,bus=xhci.0".to_owned(),
+        "-audio".to_owned(),
+        format!("driver={},model=virtio", host_audio_driver()),
+    ]);
 }
 
 pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
@@ -168,6 +202,7 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
             "-device".to_owned(),
             format!("virtio-net-pci,netdev=net0,bus=pcie.0,addr={ANDROID_NET_PCI_ADDR}"),
         ]);
+        add_accessible_android_devices(&mut args);
     } else {
         args.extend([
             "-device".to_owned(),
@@ -237,6 +272,22 @@ mod tests {
         assert!(args
             .iter()
             .any(|arg| arg == "virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8"));
+    }
+
+    #[test]
+    fn accessible_android_has_graphics_audio_and_absolute_input() {
+        let config = VmConfig {
+            disk_path: "AccessibleAndroid.qcow2".to_owned(),
+            ..VmConfig::default()
+        };
+        let args = build_args(&config).unwrap();
+        assert!(args.windows(2).any(|pair| pair == ["-vga", "virtio"]));
+        assert!(args.iter().any(|arg| arg == "qemu-xhci,id=xhci"));
+        assert!(args.iter().any(|arg| arg == "usb-kbd,bus=xhci.0"));
+        assert!(args.iter().any(|arg| arg == "usb-tablet,bus=xhci.0"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == &format!("driver={},model=virtio", host_audio_driver())));
     }
 
     #[test]
