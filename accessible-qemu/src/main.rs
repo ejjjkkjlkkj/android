@@ -6,6 +6,7 @@ mod qmp;
 use config::VmConfig;
 use eframe::egui;
 use qmp::QmpClient;
+use serde_json::json;
 use std::env;
 use std::path::Path;
 use std::process::Child;
@@ -217,6 +218,49 @@ impl AccessibleQemuApp {
             Ok(state) => format!("Virtual machine QMP status: {state}."),
             Err(error) => error,
         };
+    }
+
+    fn choose_and_insert_iso(&mut self) {
+        let Some(path) = dialogs::pick_android_iso() else {
+            return;
+        };
+        let result = self.qmp_client().and_then(|client| {
+            client.execute(
+                "blockdev-change-medium",
+                Some(json!({
+                    "id": qemu::CDROM_DEVICE_ID,
+                    "filename": path,
+                    "format": "raw",
+                    "read-only-mode": "read-only"
+                })),
+            )
+        });
+        match result {
+            Ok(_) => {
+                self.config.iso_path = path;
+                self.status = format!("ISO inserted in the virtual CD-ROM: {}.", self.config.iso_path);
+            }
+            Err(error) => self.status = format!("Unable to insert ISO: {error}"),
+        }
+    }
+
+    fn eject_iso(&mut self) {
+        let result = self.qmp_client().and_then(|client| {
+            client.execute(
+                "eject",
+                Some(json!({
+                    "id": qemu::CDROM_DEVICE_ID,
+                    "force": false
+                })),
+            )
+        });
+        match result {
+            Ok(_) => {
+                self.config.iso_path.clear();
+                self.status = "Virtual CD-ROM ejected safely through QMP.".to_owned();
+            }
+            Err(error) => self.status = format!("Unable to eject ISO: {error}"),
+        }
     }
 
     fn save_config(&mut self) {
@@ -446,6 +490,20 @@ impl AccessibleQemuApp {
             }
 
             if ui
+                .add_enabled(running, egui::Button::new("Insert or change ISO"))
+                .clicked()
+            {
+                self.choose_and_insert_iso();
+            }
+
+            if ui
+                .add_enabled(running, egui::Button::new("Eject ISO safely"))
+                .clicked()
+            {
+                self.eject_iso();
+            }
+
+            if ui
                 .add_enabled(running, egui::Button::new("Request graceful shutdown"))
                 .clicked()
             {
@@ -474,14 +532,15 @@ impl AccessibleQemuApp {
         ui.heading("Status and diagnostics");
         ui.label(&self.status);
         ui.label(format!(
-            "Accelerator: {}. OS disk PCI: 00:06.0. Network PCI: 00:07.0. RNG PCI: 00:08.0.",
-            qemu::accelerator()
+            "Accelerator: {}. OS disk PCI: 00:06.0. Network PCI: 00:07.0. RNG PCI: 00:08.0. Removable CD-ROM id: {}.",
+            qemu::accelerator(),
+            qemu::CDROM_DEVICE_ID
         ));
 
         ui.add_space(16.0);
         ui.heading("Keyboard navigation");
         ui.label(
-            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust values, and Enter or Space to activate the focused control. Native Browse/Open/Save dialogs are available so paths do not have to be typed manually.",
+            "Use Tab and Shift+Tab to move between controls, arrow keys to adjust values, and Enter or Space to activate the focused control. Native Browse/Open/Save dialogs and live ISO insert/eject controls are available without a mouse.",
         );
     }
 }
