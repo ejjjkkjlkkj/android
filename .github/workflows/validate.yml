@@ -45,3 +45,15 @@ jobs:
           test -n "$AOSP_PRODUCT"
           test -n "$GMS_PRODUCT"
           echo 'EDITION_CONFIG = PASS'
+
+      - name: Validate Android 17 lunch configuration
+        run: |
+          set -euo pipefail
+          source config/upstream.env
+          source config/editions.env
+          test "$ANDROID_API_LEVEL" = "37"
+          test -n "$ANDROID_RELEASE_CONFIG"
+          grep -Fq "${AOSP_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" device/accessibledroid/accessible_x86_64/AndroidProducts.mk
+          grep -Fq "${GMS_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" device/accessibledroid/accessible_x86_64/AndroidProducts.mk
+          grep -Fq 'LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"' scripts/build-pc-iso.sh
+          echo "ANDROID_LUNCH_CONFIG = PASS (${ANDROID_RELEASE_CONFIG})"
