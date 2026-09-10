@@ -22,6 +22,11 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/userspace_reboot.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
+# First-stage mount contract for the virtio installation disk. androidboot.hardware
+# is set in BoardConfig, causing init to discover this vendor fstab.
+PRODUCT_COPY_FILES += \
+    device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64
+
 # Accessibility is part of the base system and is independent of GMS.
 $(call inherit-product, vendor/accessibledroid/product/accessibility.mk)
 
