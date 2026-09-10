@@ -1,0 +1,84 @@
+name: Android VM hardware contract
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - 'device/accessibledroid/accessible_x86_64/**'
+      - 'accessible-utm/src/qemu.rs'
+      - 'scripts/validate-vm-runtime.sh'
+      - '.github/workflows/android-vm-hardware-contract.yml'
+  pull_request:
+    paths:
+      - 'device/accessibledroid/accessible_x86_64/**'
+      - 'accessible-utm/src/qemu.rs'
+      - 'scripts/validate-vm-runtime.sh'
+      - '.github/workflows/android-vm-hardware-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-vm-hardware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate Android 17 userspace VM hardware
+        shell: bash
+        run: |
+          set -euo pipefail
+          hw=device/accessibledroid/accessible_x86_64/vm_hardware.mk
+          product=device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
+          board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          qemu=accessible-utm/src/qemu.rs
+          runtime=scripts/validate-vm-runtime.sh
+
+          test -s "$hw"
+          grep -Fq '$(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)' "$product"
+
+          # DRM/KMS + minigbm + software GLES for a standard QEMU virtio-gpu.
+          grep -Fq 'android.hardware.composer.hwc3-service.drm' "$hw"
+          grep -Fq 'android.hardware.graphics.allocator-service.minigbm' "$hw"
+          grep -Fq 'mapper.minigbm' "$hw"
+          grep -Fq '$(call soong_config_set,minigbm,platform,generic)' "$hw"
+          grep -Fq 'libEGL_swiftshader' "$hw"
+          grep -Fq 'libGLESv2_swiftshader' "$hw"
+          grep -Fq 'ro.hardware.egl=swiftshader' "$hw"
+          grep -Fq 'virtio-gpu.ko' "$board"
+          grep -Fq '"-vga".to_owned()' "$qemu"
+          grep -Fq '"virtio".to_owned()' "$qemu"
+
+          # Android 17 AIDL audio backed by ALSA/virtio-snd.
+          grep -Fq 'com.android.hardware.audio' "$hw"
+          grep -Fq 'device_google_cuttlefish_shared_config_audio_policy' "$hw"
+          grep -Fq 'hardware/interfaces/audio/aidl/default/audio_effects.mk' "$hw"
+          grep -Fq 'virtio_snd.ko' "$board"
+          grep -Fq 'model=virtio' "$qemu"
+
+          # Keyboard and absolute pointing device are first-class VM input.
+          grep -Fq 'usb-kbd,bus=xhci.0' "$qemu"
+          grep -Fq 'usb-tablet,bus=xhci.0' "$qemu"
+
+          # Runtime validation must reject a booted-but-headless or booted-but-mute image.
+          grep -Fq 'service check SurfaceFlinger' "$runtime"
+          grep -Fq 'dumpsys SurfaceFlinger' "$runtime"
+          grep -Fq '/proc/asound/cards' "$runtime"
+          grep -Fq 'service check audio' "$runtime"
+          grep -Fq 'getevent -lp' "$runtime"
+          grep -Fq 'ip -o link show' "$runtime"
+
+          # Do not couple this portable profile to emulator-specific host protocols.
+          if grep -Eqi 'gfxstream|ranchu|goldfish-opengl' "$hw"; then
+            echo 'ERROR: portable AccessibleAndroid VM hardware layer depends on emulator-specific graphics.' >&2
+            exit 1
+          fi
+
+          echo 'ANDROID_VM_HARDWARE_CONTRACT = PASS'
