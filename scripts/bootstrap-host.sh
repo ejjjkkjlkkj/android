@@ -22,15 +22,17 @@ sudo apt-get install -y \
   libc6-dev-i386 x11proto-core-dev libx11-dev lib32z1-dev \
   libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig repo rsync \
   openjdk-17-jdk-headless \
-  xorriso grub-common grub-pc-bin grub-efi-amd64-bin syslinux-common isolinux \
+  xorriso grub-common grub2-common grub-pc-bin grub-efi-amd64-bin syslinux-common isolinux \
   mtools dosfstools e2fsprogs squashfs-tools gdisk parted cpio busybox-static \
-  qemu-system-x86 qemu-utils ovmf
+  qemu-system-x86 qemu-utils ovmf util-linux
 
 repo version
 java -version
 qemu-system-x86_64 --version
 qemu-img --version
 grub-mkrescue --version
+grub-install --version
+sgdisk --version
 xorriso -version | head -n 1
 
 echo "HOST_BOOTSTRAP=PASS"
