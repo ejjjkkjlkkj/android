@@ -1,0 +1,11 @@
+[package]
+name = "accessible-utm"
+version = "0.1.0"
+edition = "2024"
+description = "Accessibility-first multi-architecture UTM/QEMU frontend for Windows"
+license = "Apache-2.0"
+
+[dependencies]
+eframe = { version = "0.36.2", default-features = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
