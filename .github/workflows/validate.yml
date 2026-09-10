@@ -1,0 +1,47 @@
+name: Validate repository
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Parse shell scripts
+        run: bash -n scripts/*.sh
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+
+      - name: Reject packaged Android binaries in repository
+        run: bash scripts/check-no-proprietary.sh
+
+      - name: Verify GMS input fails closed when no authorized bundle is supplied
+        run: |
+          if GMS_BUNDLE_DIR= bash scripts/validate-gms-input.sh; then
+            echo 'ERROR: GMS validator accepted an empty private input' >&2
+            exit 1
+          fi
+          echo 'GMS_FAIL_CLOSED = PASS'
+
+      - name: Validate edition configuration
+        run: |
+          set -euo pipefail
+          source config/editions.env
+          test "$DEFAULT_EDITION" = "accessible-aosp"
+          test "$GMS_EDITION" = "accessible-gms"
+          test -n "$AOSP_PRODUCT"
+          test -n "$GMS_PRODUCT"
+          echo 'EDITION_CONFIG = PASS'
