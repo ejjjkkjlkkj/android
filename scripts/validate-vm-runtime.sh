@@ -29,6 +29,11 @@ echo "BOOT_COMPLETED = PASS"
 adb_cmd shell cmd package list packages >/dev/null || fail "PackageManager is unavailable"
 echo "PACKAGE_MANAGER = PASS"
 
+surface_service="$(adb_cmd shell service check SurfaceFlinger 2>/dev/null | tr -d '\r' || true)"
+[[ "$surface_service" == *found* ]] || fail "SurfaceFlinger service is unavailable"
+adb_cmd shell dumpsys SurfaceFlinger >/dev/null 2>&1 || fail "SurfaceFlinger cannot be queried"
+echo "GRAPHICAL_STACK = PASS"
+
 accessibility_enabled="$(adb_cmd shell settings get secure accessibility_enabled | tr -d '\r')"
 [[ "$accessibility_enabled" == "1" ]] || fail "Android accessibility is not enabled"
 
@@ -41,6 +46,31 @@ echo "ACCESSIBILITY_SERVICES = $services"
 tts="$(adb_cmd shell settings get secure tts_default_synth | tr -d '\r')"
 [[ -n "$tts" && "$tts" != "null" ]] || fail "no default TTS engine is configured"
 echo "TTS = PASS ($tts)"
+
+audio_service="$(adb_cmd shell service check audio 2>/dev/null | tr -d '\r' || true)"
+[[ "$audio_service" == *found* ]] || fail "Android audio service is unavailable"
+adb_cmd shell dumpsys audio >/dev/null 2>&1 || fail "Android AudioService cannot be queried"
+
+audio_cards="$(adb_cmd shell 'cat /proc/asound/cards 2>/dev/null || true' | tr -d '\r')"
+[[ -n "$audio_cards" ]] || fail "no ALSA sound card information is exposed"
+if grep -Eiq 'no soundcards|--- no soundcards ---' <<<"$audio_cards"; then
+  fail "Android kernel reports no sound cards"
+fi
+echo "AUDIO_DEVICE = PASS"
+
+input_devices="$(adb_cmd shell 'getevent -lp 2>/dev/null || cat /proc/bus/input/devices 2>/dev/null || true' | tr -d '\r')"
+[[ -n "$input_devices" ]] || fail "no input devices are visible"
+if ! grep -Eiq 'keyboard|kbd|tablet|mouse|touch|virtio|qemu' <<<"$input_devices"; then
+  fail "no keyboard/pointer-capable VM input device was detected"
+fi
+echo "INPUT_DEVICES = PASS"
+
+network_links="$(adb_cmd shell 'ip -o link show 2>/dev/null || true' | tr -d '\r')"
+[[ -n "$network_links" ]] || fail "Android network interfaces cannot be enumerated"
+if ! awk -F': ' '$2 != "lo" {found=1} END {exit(found ? 0 : 1)}' <<<"$network_links"; then
+  fail "no non-loopback network interface is available"
+fi
+echo "NETWORK_DEVICE = PASS"
 
 case "$EDITION" in
   accessible-aosp)
