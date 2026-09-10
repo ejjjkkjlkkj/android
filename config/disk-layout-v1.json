@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "architecture": "x86_64",
+  "alignment_mib": 2,
+  "policy": {
+    "inspiration": "ChromiumOS declarative GPT + A/B robustness",
+    "partition_semantics": "Android-native",
+    "userdata": "grow-to-fill-installed-disk",
+    "super": "resolve-from-Android-target-files-with-A/B-headroom",
+    "recovery": "vendor_boot unless BSP requires dedicated recovery"
+  },
+  "physical_partitions": [
+    {"name": "esp", "type": "efi-system", "slot": null, "content": "UEFI x86_64 bootloader"},
+    {"name": "boot_a", "type": "android-boot", "slot": "a", "content": "GKI kernel"},
+    {"name": "boot_b", "type": "android-boot", "slot": "b", "content": "GKI kernel"},
+    {"name": "init_boot_a", "type": "android-init-boot", "slot": "a", "content": "generic ramdisk"},
+    {"name": "init_boot_b", "type": "android-init-boot", "slot": "b", "content": "generic ramdisk"},
+    {"name": "vendor_boot_a", "type": "android-vendor-boot", "slot": "a", "content": "PC VM ramdisk/modules/recovery resources"},
+    {"name": "vendor_boot_b", "type": "android-vendor-boot", "slot": "b", "content": "PC VM ramdisk/modules/recovery resources"},
+    {"name": "vbmeta_a", "type": "android-vbmeta", "slot": "a", "content": "AVB metadata"},
+    {"name": "vbmeta_b", "type": "android-vbmeta", "slot": "b", "content": "AVB metadata"},
+    {"name": "super", "type": "android-super", "slot": null, "content": "dynamic partitions for both Android slots"},
+    {"name": "metadata", "type": "android-metadata", "slot": null, "content": "snapshot/update metadata"},
+    {"name": "misc", "type": "android-misc", "slot": null, "content": "boot/recovery control"},
+    {"name": "userdata", "type": "android-userdata", "slot": null, "content": "persistent application/user data"}
+  ],
+  "logical_partitions_expected": [
+    "system",
+    "system_ext",
+    "product",
+    "vendor",
+    "odm"
+  ],
+  "release_health_gate": [
+    "android-framework-ready",
+    "audio-output-ready",
+    "offline-tts-ready",
+    "screen-reader-enabled"
+  ]
+}
