@@ -17,6 +17,14 @@ TEST_MODE="${TEST_MODE:-all}"
 FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'
 POST_FS_MARKER='ACCESSIBLE_ANDROID_POST_FS_DATA=PASS'
 
+if [[ -n "${QEMU_CPU:-}" ]]; then
+  CPU_MODEL="$QEMU_CPU"
+elif [[ "$QEMU_ACCEL" == "kvm" ]]; then
+  CPU_MODEL=host
+else
+  CPU_MODEL=max
+fi
+
 [[ -n "$QEMU" && -x "$QEMU" ]] || {
   echo "ERROR: qemu-system-x86_64 is required" >&2
   exit 2
@@ -63,13 +71,15 @@ run_boot_test() {
   fi
 
   echo "==> QEMU preinstalled Android test: $mode"
+  echo "QEMU_ACCEL = $QEMU_ACCEL"
+  echo "QEMU_CPU = $CPU_MODEL"
   rm -f "$log"
 
   set +e
   timeout --signal=TERM "$BOOT_TIMEOUT_SECONDS" \
     "$QEMU" \
       -machine "$VM_MACHINE,accel=$QEMU_ACCEL" \
-      -cpu max \
+      -cpu "$CPU_MODEL" \
       -m "$VM_MEMORY_MIB" \
       -smp "$VM_CPUS" \
       "${firmware_args[@]}" \
@@ -79,6 +89,7 @@ run_boot_test() {
       -netdev user,id=net0 \
       -device 'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8' \
       -boot order=c \
+      -snapshot \
       -display none \
       -serial stdio \
       -monitor none \
