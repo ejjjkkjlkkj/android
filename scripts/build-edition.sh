@@ -5,7 +5,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/editions.env"
 
+AOSP_DIR="${AOSP_DIR:-$HOME/aosp-accessible-android}"
 EDITION="${1:-$DEFAULT_EDITION}"
+GMS_STAGE_DIR="$AOSP_DIR/vendor/accessibledroid/private-gms"
+GMS_STAGED=0
+
+cleanup() {
+  if [[ "$GMS_STAGED" == "1" && -d "$GMS_STAGE_DIR" ]]; then
+    rm -rf "$GMS_STAGE_DIR"
+    echo "GMS_STAGE = CLEANED"
+  fi
+}
+trap cleanup EXIT INT TERM
 
 case "$EDITION" in
   "$AOSP_EDITION")
@@ -13,7 +24,8 @@ case "$EDITION" in
     export PRODUCT_NAME="$AOSP_PRODUCT"
     ;;
   "$GMS_EDITION")
-    "$ROOT_DIR/scripts/validate-gms-input.sh"
+    "$ROOT_DIR/scripts/stage-gms-bundle.sh"
+    GMS_STAGED=1
     export ACCESSIBLE_ANDROID_EDITION="$GMS_EDITION"
     export PRODUCT_NAME="$GMS_PRODUCT"
     ;;
@@ -27,4 +39,4 @@ esac
 echo "EDITION = $ACCESSIBLE_ANDROID_EDITION"
 echo "PRODUCT = $PRODUCT_NAME"
 
-exec "$ROOT_DIR/scripts/build-pc-iso.sh"
+"$ROOT_DIR/scripts/build-pc-iso.sh"
