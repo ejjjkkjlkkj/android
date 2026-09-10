@@ -1,0 +1,124 @@
+name: Android 17 kernel smoke ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_host:
+        description: 'Install required Ubuntu build packages with sudo before running'
+        required: false
+        default: false
+        type: boolean
+      sync_jobs:
+        description: 'repo sync parallel jobs'
+        required: false
+        default: '8'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android17-kernel-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kernel-smoke:
+    name: Build and boot Android 17 x86_64 kernel ISO
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 180
+    env:
+      KERNEL_SYNC_JOBS: ${{ inputs.sync_jobs }}
+      QEMU_ACCEL: tcg
+      BOOT_TIMEOUT_SECONDS: '90'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: true
+
+      - name: Show builder resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          nproc
+          free -h || true
+          df -h .
+          test "$(uname -m)" = x86_64
+
+      - name: Optional host bootstrap
+        if: inputs.bootstrap_host
+        shell: bash
+        run: bash scripts/bootstrap-host.sh
+
+      - name: Verify required host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(repo git python3 bash sha256sum cpio gzip busybox grub-mkrescue xorriso qemu-system-x86_64 timeout)
+          missing=0
+          for command_name in "${required[@]}"; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              printf '%-24s %s\n' "$command_name" "$(command -v "$command_name")"
+            else
+              echo "MISSING: $command_name" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Sync official Android 17 kernel sources
+        shell: bash
+        run: bash scripts/sync-kernel.sh
+
+      - name: Build official virtual-device x86_64 kernel
+        shell: bash
+        run: bash scripts/build-kernel.sh
+
+      - name: Build deterministic smoke initramfs
+        shell: bash
+        run: bash scripts/build-kernel-smoke-initramfs.sh
+
+      - name: Package BIOS and UEFI smoke ISO
+        shell: bash
+        run: bash scripts/package-kernel-smoke-iso.sh
+
+      - name: Boot smoke ISO in QEMU BIOS and UEFI
+        shell: bash
+        run: TEST_MODE=all bash scripts/test-kernel-smoke-qemu.sh
+
+      - name: Record provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs .work/vm
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            cat config/kernel.env
+          } > .work/logs/kernel-smoke-provenance.txt
+          if [[ -f config/kernel-pinned-manifest.xml ]]; then
+            cp config/kernel-pinned-manifest.xml .work/logs/kernel-pinned-manifest.xml
+          fi
+          find .work/vm -maxdepth 1 -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum > .work/logs/vm-artifacts.sha256
+
+      - name: Upload smoke ISO and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-kernel-smoke-${{ github.run_id }}
+          path: |
+            .work/vm/**
+            .work/logs/**
+            .work/kernel-dist/kernel.release
+            .work/kernel-dist/bzImage
+            .work/kernel-dist/initramfs.img
+          if-no-files-found: warn
+          retention-days: 30
