@@ -55,7 +55,7 @@ jobs:
           test -n "$ANDROID_RELEASE_CONFIG"
           grep -Fq "${AOSP_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" device/accessibledroid/accessible_x86_64/AndroidProducts.mk
           grep -Fq "${GMS_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" device/accessibledroid/accessible_x86_64/AndroidProducts.mk
-          grep -Fq 'LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"' scripts/build-pc-iso.sh
+          grep -Fq 'LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"' scripts/build-android-images.sh
           echo "ANDROID_LUNCH_CONFIG = PASS (${ANDROID_RELEASE_CONFIG})"
 
       - name: Validate Android 17 x86_64 kernel contract
@@ -115,3 +115,17 @@ jobs:
           grep -Fq 'logical,first_stage_mount,slotselect,avb' "$fstab"
           grep -Fq '/dev/block/by-name/userdata' "$fstab"
           echo 'ANDROID_BOOT_LAYOUT = PASS'
+
+      - name: Validate native Android image and ISO packaging path
+        run: |
+          set -euo pipefail
+          for target in bootimage initbootimage vendorbootimage superimage userdataimage vbmetaimage target-files-package; do
+            grep -Fq "$target" scripts/build-android-images.sh
+          done
+          grep -Fq 'package-android-payload-iso.sh' scripts/build-pc-iso.sh
+          grep -Fq 'NON_DESTRUCTIVE_INSTALLER_PREVIEW' scripts/package-android-payload-iso.sh
+          if grep -R -n -E --include='*.sh' '(^|[[:space:]])(m|make)[[:space:]]+iso_img([[:space:]]|$)' scripts; then
+            echo 'ERROR: legacy AAropa/Android-x86 iso_img build path is forbidden.' >&2
+            exit 1
+          fi
+          echo 'ANDROID_NATIVE_IMAGE_PIPELINE = PASS'
