@@ -76,7 +76,10 @@ jobs:
           grep -Fq 'ip -o link show' "$runtime"
 
           # Do not couple this portable profile to emulator-specific host protocols.
-          if grep -Eqi 'gfxstream|ranchu|goldfish-opengl' "$hw"; then
+          # Comments may mention forbidden names while explaining the design, so
+          # only active Makefile lines are checked here.
+          active_hw="$(grep -Ev '^[[:space:]]*(#|$)' "$hw")"
+          if grep -Eqi 'gfxstream|ranchu|goldfish-opengl' <<<"$active_hw"; then
             echo 'ERROR: portable AccessibleAndroid VM hardware layer depends on emulator-specific graphics.' >&2
             exit 1
           fi
