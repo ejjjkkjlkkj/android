@@ -7,10 +7,16 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-const HELP: &str = "AccessibleQEMU\n\nOptions:\n  --iso <path>       AccessibleAndroid ISO\n  --disk <path>      QCOW2 virtual disk\n  --qemu <path>      qemu-system-x86_64 executable\n  --memory <MiB>     Guest memory, 1024..32768\n  --cpus <count>     Guest virtual CPUs, 1..16\n  --qmp-port <port>  Local QMP control port, default 4444\n  --autostart        Start VM immediately after opening GUI\n  --help, -h         Show this help and exit\n  --version          Show version and exit\n";
+const OS_DISK_ID: &str = "osdisk";
+const OS_DISK_PCI_ADDR: &str = "0x6";
+const RNG_PCI_ADDR: &str = "0x7";
+const NET_PCI_ADDR: &str = "0x8";
+
+const HELP: &str = "AccessibleQEMU\n\nOptions:\n  --iso <path>             AccessibleAndroid ISO\n  --disk <path>            RAW/QCOW2/VDI/VMDK virtual disk\n  --firmware <path>        Optional OVMF/UEFI firmware image\n  --qemu <path>            qemu-system-x86_64 executable\n  --memory <MiB>           Guest memory, 1024..32768\n  --cpus <count>           Guest virtual CPUs, 1..16\n  --qmp-port <port>        Local QMP control port, default 4444\n  --autostart              Start VM immediately after opening GUI\n  --print-qemu-command     Print deterministic QEMU command and exit\n  --help, -h               Show this help and exit\n  --version                Show version and exit\n\nHardware contract:\n  OS disk: virtio-blk-pci at PCI 0000:00:06.0\n  RNG:     virtio-rng-pci at PCI 0000:00:07.0\n  Network: virtio-net-pci at PCI 0000:00:08.0\n";
 
 enum Startup {
     Gui(AccessibleQemuApp),
+    PrintCommand(AccessibleQemuApp),
     Exit,
 }
 
@@ -18,6 +24,7 @@ struct AccessibleQemuApp {
     qemu_binary: String,
     iso_path: String,
     disk_path: String,
+    firmware_path: String,
     memory_mib: u32,
     cpu_count: u32,
     qmp_port: u16,
@@ -32,6 +39,7 @@ impl Default for AccessibleQemuApp {
             qemu_binary: default_qemu_binary(),
             iso_path: String::new(),
             disk_path: String::new(),
+            firmware_path: String::new(),
             memory_mib: 4096,
             cpu_count: 4,
             qmp_port: 4444,
@@ -64,51 +72,85 @@ fn default_qemu_binary() -> String {
     }
 }
 
+fn next_value(args: &mut impl Iterator<Item = String>, option: &str) -> Option<String> {
+    match args.next() {
+        Some(value) => Some(value),
+        None => {
+            eprintln!("ERROR: {option} requires a value");
+            None
+        }
+    }
+}
+
 fn app_from_args() -> Startup {
     let mut app = AccessibleQemuApp::default();
     let mut args = env::args().skip(1);
+    let mut print_command = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--iso" => {
-                if let Some(value) = args.next() {
-                    app.iso_path = value;
-                }
+                let Some(value) = next_value(&mut args, "--iso") else {
+                    return Startup::Exit;
+                };
+                app.iso_path = value;
             }
             "--disk" => {
-                if let Some(value) = args.next() {
-                    app.disk_path = value;
-                }
+                let Some(value) = next_value(&mut args, "--disk") else {
+                    return Startup::Exit;
+                };
+                app.disk_path = value;
+            }
+            "--firmware" => {
+                let Some(value) = next_value(&mut args, "--firmware") else {
+                    return Startup::Exit;
+                };
+                app.firmware_path = value;
             }
             "--qemu" => {
-                if let Some(value) = args.next() {
-                    app.qemu_binary = value;
-                }
+                let Some(value) = next_value(&mut args, "--qemu") else {
+                    return Startup::Exit;
+                };
+                app.qemu_binary = value;
             }
             "--memory" => {
-                if let Some(value) = args.next() {
-                    if let Ok(parsed) = value.parse::<u32>() {
-                        app.memory_mib = parsed.clamp(1024, 32768);
+                let Some(value) = next_value(&mut args, "--memory") else {
+                    return Startup::Exit;
+                };
+                match value.parse::<u32>() {
+                    Ok(parsed) => app.memory_mib = parsed.clamp(1024, 32768),
+                    Err(_) => {
+                        eprintln!("ERROR: invalid --memory value: {value}");
+                        return Startup::Exit;
                     }
                 }
             }
             "--cpus" => {
-                if let Some(value) = args.next() {
-                    if let Ok(parsed) = value.parse::<u32>() {
-                        app.cpu_count = parsed.clamp(1, 16);
+                let Some(value) = next_value(&mut args, "--cpus") else {
+                    return Startup::Exit;
+                };
+                match value.parse::<u32>() {
+                    Ok(parsed) => app.cpu_count = parsed.clamp(1, 16),
+                    Err(_) => {
+                        eprintln!("ERROR: invalid --cpus value: {value}");
+                        return Startup::Exit;
                     }
                 }
             }
             "--qmp-port" => {
-                if let Some(value) = args.next() {
-                    if let Ok(parsed) = value.parse::<u16>() {
-                        if parsed > 0 {
-                            app.qmp_port = parsed;
-                        }
+                let Some(value) = next_value(&mut args, "--qmp-port") else {
+                    return Startup::Exit;
+                };
+                match value.parse::<u16>() {
+                    Ok(parsed) if parsed > 0 => app.qmp_port = parsed,
+                    _ => {
+                        eprintln!("ERROR: invalid --qmp-port value: {value}");
+                        return Startup::Exit;
                     }
                 }
             }
             "--autostart" => app.autostart_pending = true,
+            "--print-qemu-command" => print_command = true,
             "--help" | "-h" => {
                 print!("{HELP}");
                 return Startup::Exit;
@@ -117,11 +159,43 @@ fn app_from_args() -> Startup {
                 println!("AccessibleQEMU {}", env!("CARGO_PKG_VERSION"));
                 return Startup::Exit;
             }
-            _ => {}
+            _ => {
+                eprintln!("ERROR: unknown option: {arg}");
+                return Startup::Exit;
+            }
         }
     }
 
-    Startup::Gui(app)
+    if print_command {
+        Startup::PrintCommand(app)
+    } else {
+        Startup::Gui(app)
+    }
+}
+
+fn disk_format(path: &str) -> Result<&'static str, String> {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "qcow2" | "qcow" => Ok("qcow2"),
+        "raw" | "img" => Ok("raw"),
+        "vdi" => Ok("vdi"),
+        "vmdk" => Ok("vmdk"),
+        _ => Err(format!(
+            "Unsupported virtual disk format for '{path}'. Use .raw, .img, .qcow2, .vdi or .vmdk."
+        )),
+    }
+}
+
+fn quote_for_display(value: &str) -> String {
+    if value.is_empty() || value.chars().any(char::is_whitespace) {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    } else {
+        value.to_owned()
+    }
 }
 
 fn read_qmp_response(reader: &mut BufReader<TcpStream>) -> Result<Value, String> {
@@ -162,6 +236,88 @@ impl AccessibleQemuApp {
         }
     }
 
+    fn validate_paths(&self) -> Result<(), String> {
+        if self.iso_path.trim().is_empty() && self.disk_path.trim().is_empty() {
+            return Err("Provide an ISO path, a virtual disk path, or both.".to_owned());
+        }
+        if !self.iso_path.trim().is_empty() && !Path::new(self.iso_path.trim()).is_file() {
+            return Err(format!("ISO not found: {}", self.iso_path.trim()));
+        }
+        if !self.disk_path.trim().is_empty() && !Path::new(self.disk_path.trim()).is_file() {
+            return Err(format!("Virtual disk not found: {}", self.disk_path.trim()));
+        }
+        if !self.firmware_path.trim().is_empty()
+            && !Path::new(self.firmware_path.trim()).is_file()
+        {
+            return Err(format!("Firmware not found: {}", self.firmware_path.trim()));
+        }
+        Ok(())
+    }
+
+    fn qemu_args(&self) -> Result<Vec<String>, String> {
+        let mut args = vec![
+            "-name".to_owned(),
+            "Accessible Android".to_owned(),
+            "-machine".to_owned(),
+            format!("q35,accel={}", Self::qemu_accelerator()),
+            "-m".to_owned(),
+            self.memory_mib.to_string(),
+            "-smp".to_owned(),
+            self.cpu_count.to_string(),
+            "-qmp".to_owned(),
+            format!("tcp:127.0.0.1:{},server=on,wait=off", self.qmp_port),
+            "-monitor".to_owned(),
+            "none".to_owned(),
+        ];
+
+        if !self.firmware_path.trim().is_empty() {
+            args.push("-bios".to_owned());
+            args.push(self.firmware_path.trim().to_owned());
+        }
+
+        if !self.disk_path.trim().is_empty() {
+            let format = disk_format(self.disk_path.trim())?;
+            args.push("-drive".to_owned());
+            args.push(format!(
+                "if=none,id={OS_DISK_ID},file={},format={format},cache=writeback",
+                self.disk_path.trim()
+            ));
+            args.push("-device".to_owned());
+            args.push(format!(
+                "virtio-blk-pci,drive={OS_DISK_ID},bus=pcie.0,addr={OS_DISK_PCI_ADDR},bootindex=1"
+            ));
+        }
+
+        args.extend([
+            "-device".to_owned(),
+            format!("virtio-rng-pci,bus=pcie.0,addr={RNG_PCI_ADDR}"),
+            "-netdev".to_owned(),
+            "user,id=net0".to_owned(),
+            "-device".to_owned(),
+            format!("virtio-net-pci,netdev=net0,bus=pcie.0,addr={NET_PCI_ADDR}"),
+        ]);
+
+        if !self.iso_path.trim().is_empty() {
+            args.push("-cdrom".to_owned());
+            args.push(self.iso_path.trim().to_owned());
+            args.push("-boot".to_owned());
+            args.push("menu=on,order=d".to_owned());
+        } else if !self.disk_path.trim().is_empty() {
+            args.push("-boot".to_owned());
+            args.push("menu=on,order=c".to_owned());
+        }
+
+        Ok(args)
+    }
+
+    fn printable_qemu_command(&self) -> Result<String, String> {
+        let args = self.qemu_args()?;
+        let mut parts = Vec::with_capacity(args.len() + 1);
+        parts.push(quote_for_display(self.qemu_binary.trim()));
+        parts.extend(args.iter().map(|arg| quote_for_display(arg)));
+        Ok(parts.join(" "))
+    }
+
     fn refresh_process_state(&mut self) {
         let Some(child) = self.child.as_mut() else {
             return;
@@ -186,68 +342,31 @@ impl AccessibleQemuApp {
             return;
         }
 
-        if self.iso_path.trim().is_empty() && self.disk_path.trim().is_empty() {
-            self.status =
-                "Cannot start: provide an ISO path, a virtual disk path, or both.".to_owned();
+        if let Err(error) = self.validate_paths() {
+            self.status = format!("Cannot start: {error}");
             return;
         }
 
-        if !self.iso_path.trim().is_empty() && !Path::new(self.iso_path.trim()).is_file() {
-            self.status = format!("Cannot start: ISO not found: {}", self.iso_path.trim());
-            return;
-        }
-
-        if !self.disk_path.trim().is_empty() && !Path::new(self.disk_path.trim()).is_file() {
-            self.status = format!("Cannot start: virtual disk not found: {}", self.disk_path.trim());
-            return;
-        }
+        let args = match self.qemu_args() {
+            Ok(args) => args,
+            Err(error) => {
+                self.status = format!("Cannot start: {error}");
+                return;
+            }
+        };
 
         let mut command = Command::new(self.qemu_binary.trim());
         command
-            .arg("-name")
-            .arg("Accessible Android")
-            .arg("-machine")
-            .arg(format!("q35,accel={}", Self::qemu_accelerator()))
-            .arg("-m")
-            .arg(self.memory_mib.to_string())
-            .arg("-smp")
-            .arg(self.cpu_count.to_string())
-            .arg("-qmp")
-            .arg(format!(
-                "tcp:127.0.0.1:{},server=on,wait=off",
-                self.qmp_port
-            ))
-            .arg("-monitor")
-            .arg("none")
-            .arg("-device")
-            .arg("virtio-rng-pci")
-            .arg("-netdev")
-            .arg("user,id=net0")
-            .arg("-device")
-            .arg("virtio-net-pci,netdev=net0")
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-
-        if !self.disk_path.trim().is_empty() {
-            command
-                .arg("-drive")
-                .arg(format!("file={},if=virtio,format=qcow2", self.disk_path.trim()));
-        }
-
-        if !self.iso_path.trim().is_empty() {
-            command
-                .arg("-cdrom")
-                .arg(self.iso_path.trim())
-                .arg("-boot")
-                .arg("menu=on,order=d");
-        }
 
         match command.spawn() {
             Ok(child) => {
                 self.child = Some(child);
                 self.status = format!(
-                    "Virtual machine started. QMP control is available locally on port {}.",
+                    "Virtual machine started. OS disk PCI address is 0000:00:06.0. QMP control is available locally on port {}.",
                     self.qmp_port
                 );
             }
@@ -354,6 +473,7 @@ impl AccessibleQemuApp {
     fn render(&mut self, ui: &mut egui::Ui) {
         ui.heading("AccessibleQEMU");
         ui.label("Accessibility-first graphical virtual machine manager");
+        ui.label("Deterministic Android OS disk: virtio-blk PCI 0000:00:06.0");
         ui.separator();
 
         ui.heading("Virtual machine configuration");
@@ -371,13 +491,19 @@ impl AccessibleQemuApp {
 
                 let label = ui.label("Android ISO path");
                 ui.text_edit_singleline(&mut self.iso_path)
-                    .on_hover_text("Path to the Accessible Android bootable ISO")
+                    .on_hover_text("Optional AccessibleAndroid bootable ISO")
                     .labelled_by(label.id);
                 ui.end_row();
 
                 let label = ui.label("Virtual disk path");
                 ui.text_edit_singleline(&mut self.disk_path)
-                    .on_hover_text("Path to an existing QCOW2 virtual disk")
+                    .on_hover_text("RAW, IMG, QCOW2, VDI or VMDK AccessibleAndroid disk")
+                    .labelled_by(label.id);
+                ui.end_row();
+
+                let label = ui.label("UEFI firmware path");
+                ui.text_edit_singleline(&mut self.firmware_path)
+                    .on_hover_text("Optional OVMF firmware; leave empty for legacy BIOS")
                     .labelled_by(label.id);
                 ui.end_row();
 
@@ -419,28 +545,24 @@ impl AccessibleQemuApp {
             {
                 self.start_vm();
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Pause virtual machine"))
                 .clicked()
             {
                 self.run_qmp_action("stop", "Virtual machine paused through QMP.");
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Resume virtual machine"))
                 .clicked()
             {
                 self.run_qmp_action("cont", "Virtual machine resumed through QMP.");
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Reset virtual machine"))
                 .clicked()
             {
                 self.run_qmp_action("system_reset", "Virtual machine reset requested through QMP.");
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Request graceful shutdown"))
                 .clicked()
@@ -450,14 +572,12 @@ impl AccessibleQemuApp {
                     "Graceful guest shutdown requested through QMP.",
                 );
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Force stop virtual machine"))
                 .clicked()
             {
                 self.force_stop_vm();
             }
-
             if ui
                 .add_enabled(running, egui::Button::new("Query virtual machine status"))
                 .clicked()
@@ -478,10 +598,18 @@ impl AccessibleQemuApp {
     }
 }
 
+impl Drop for AccessibleQemuApp {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 impl eframe::App for AccessibleQemuApp {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh_process_state();
-
         if self.autostart_pending {
             self.autostart_pending = false;
             self.start_vm();
@@ -494,14 +622,61 @@ impl eframe::App for AccessibleQemuApp {
 }
 
 fn main() -> eframe::Result<()> {
-    let Startup::Gui(app) = app_from_args() else {
-        return Ok(());
-    };
+    match app_from_args() {
+        Startup::Exit => Ok(()),
+        Startup::PrintCommand(app) => match app.printable_qemu_command() {
+            Ok(command) => {
+                println!("{command}");
+                Ok(())
+            }
+            Err(error) => {
+                eprintln!("ERROR: {error}");
+                std::process::exit(2);
+            }
+        },
+        Startup::Gui(app) => {
+            let options = eframe::NativeOptions::default();
+            eframe::run_native(
+                "AccessibleQEMU",
+                options,
+                Box::new(move |_creation_context| Ok(Box::new(app))),
+            )
+        }
+    }
+}
 
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "AccessibleQEMU",
-        options,
-        Box::new(move |_creation_context| Ok(Box::new(app))),
-    )
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_supported_disk_formats() {
+        assert_eq!(disk_format("disk.qcow2").unwrap(), "qcow2");
+        assert_eq!(disk_format("disk.raw").unwrap(), "raw");
+        assert_eq!(disk_format("disk.img").unwrap(), "raw");
+        assert_eq!(disk_format("disk.vdi").unwrap(), "vdi");
+        assert_eq!(disk_format("disk.vmdk").unwrap(), "vmdk");
+        assert!(disk_format("disk.iso").is_err());
+    }
+
+    #[test]
+    fn pins_android_disk_and_devices_to_stable_pci_addresses() {
+        let app = AccessibleQemuApp {
+            disk_path: "AccessibleAndroid.qcow2".to_owned(),
+            ..AccessibleQemuApp::default()
+        };
+        let args = app.qemu_args().unwrap();
+        assert!(args.iter().any(|arg| {
+            arg == "virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6,bootindex=1"
+        }));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "virtio-rng-pci,bus=pcie.0,addr=0x7"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8"));
+        assert!(args
+            .iter()
+            .any(|arg| arg.contains("if=none,id=osdisk") && arg.contains("format=qcow2")));
+    }
 }
