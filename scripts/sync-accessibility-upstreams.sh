@@ -2,10 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/accessibility-upstreams.env"
 
-SRC_ROOT="${ACCESSIBILITY_SRC_DIR:-$HOME/accessibledroid-accessibility-src}"
+SRC_ROOT="$ACCESSIBILITY_SRC_DIR"
 mkdir -p "$SRC_ROOT"
 
 sync_repo() {
@@ -41,3 +44,4 @@ sync_repo "TALKBACK" "$TALKBACK_URL" "$TALKBACK_REV" "$SRC_ROOT/talkback"
 sync_repo "ESPEAK_NG" "$ESPEAK_NG_URL" "$ESPEAK_NG_REV" "$SRC_ROOT/espeak-ng"
 
 echo "ACCESSIBILITY_SOURCES = VERIFIED"
+echo "ACCESSIBILITY_SRC_DIR = $ACCESSIBILITY_SRC_DIR"
