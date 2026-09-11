@@ -6,6 +6,7 @@ on:
       - accessible-virtual-suite
     paths:
       - 'device/accessibledroid/accessible_x86_64/**'
+      - 'vendor/accessibledroid/**'
       - 'accessible-utm/src/qemu.rs'
       - 'scripts/test-preinstalled-disk-qemu.sh'
       - 'scripts/validate-vm-runtime.sh'
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'device/accessibledroid/accessible_x86_64/**'
+      - 'vendor/accessibledroid/**'
       - 'accessible-utm/src/qemu.rs'
       - 'scripts/test-preinstalled-disk-qemu.sh'
       - 'scripts/validate-vm-runtime.sh'
@@ -33,7 +35,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      - name: Validate Android 17 userspace VM hardware
+      - name: Validate Android 17 userspace VM hardware and accessible boot
         shell: bash
         run: |
           set -euo pipefail
@@ -42,16 +44,39 @@ jobs:
           board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
           initrc=device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           probe=device/accessibledroid/accessible_x86_64/accessible-vm-hardware-probe.sh
+          accessibility=vendor/accessibledroid/product/accessibility.mk
+          bootstrap=vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
           qemu=accessible-utm/src/qemu.rs
           boot=scripts/test-preinstalled-disk-qemu.sh
           runtime=scripts/validate-vm-runtime.sh
 
           test -s "$hw"
           test -s "$probe"
+          test -s "$accessibility"
+          test -s "$bootstrap"
           sh -n "$probe"
           grep -Fq '$(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)' "$product"
           grep -Fq 'accessible-vm-hardware-probe.sh:$(TARGET_COPY_OUT_VENDOR)/etc/accessible-vm-hardware-probe.sh' "$product"
           grep -Fq '/system/bin/sh /vendor/etc/accessible-vm-hardware-probe.sh' "$initrc"
+
+          # Accessibility is a first-class system feature, not an optional host add-on.
+          grep -Fq 'AccessibilityBootstrap' "$accessibility"
+          grep -Fq 'AccessibleTalkBack' "$accessibility"
+          grep -Fq 'AccessibleEspeakTts' "$accessibility"
+          grep -Fq 'ro.vendor.accessibledroid.accessibility_required=true' "$accessibility"
+          grep -Fq 'ro.vendor.accessibledroid.offline_tts_required=true' "$accessibility"
+          grep -Fq 'com.google.android.accessibility.talkback' "$bootstrap"
+          grep -Fq 'com.google.android.marvin.talkback.TalkBackService' "$bootstrap"
+          grep -Fq 'com.reecedunn.espeak' "$bootstrap"
+          grep -Fq 'Settings.Secure.ACCESSIBILITY_ENABLED' "$bootstrap"
+          grep -Fq 'Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES' "$bootstrap"
+          grep -Fq 'TTS_DEFAULT_SYNTH' "$bootstrap"
+          grep -Fq 'TALKBACK_COMPONENT=com.google.android.accessibility.talkback/com.google.android.marvin.talkback.TalkBackService' "$probe"
+          grep -Fq 'ESPEAK_PACKAGE=com.reecedunn.espeak' "$probe"
+          grep -Fq 'ACCESSIBILITY_WAIT_SECONDS=45' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_TALKBACK=PASS' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_OFFLINE_TTS=PASS' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_ACCESSIBILITY_STACK=PASS' "$probe"
 
           # DRM/KMS + minigbm + software GLES for a standard QEMU virtio-gpu.
           grep -Fq 'android.hardware.composer.hwc3-service.drm' "$hw"
@@ -77,6 +102,9 @@ jobs:
           grep -Fq "none,id=android-audio" "$boot"
           grep -Fq '/proc/asound/cards' "$probe"
           grep -Fq 'AUDIO_VIRTIO=PASS' "$probe"
+          grep -Fq 'service check audio' "$probe"
+          grep -Fq 'dumpsys media.audio_flinger' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_AUDIO_FRAMEWORK=PASS' "$probe"
           if grep -Fq '"-audio".to_owned()' "$qemu"; then
             echo 'ERROR: AccessibleUTM must use explicit -audiodev + virtio-sound-pci, not -audio shorthand.' >&2
             exit 1
@@ -100,20 +128,24 @@ jobs:
           grep -Fq 'ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS' "$probe"
 
           # The preinstalled boot test must exercise the full VM hardware bundle,
-          # require the guest-side proof, and stop as soon as proof is complete.
+          # require both accessibility and guest-side hardware proof, and stop early.
           grep -Fq 'HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"' "$boot"
           grep -Fq 'QEMU_VM_HARDWARE_CAPABILITIES = PASS' "$boot"
+          grep -Fq "GUEST_ACCESSIBILITY_MARKER='ACCESSIBLE_ANDROID_ACCESSIBILITY_STACK=PASS'" "$boot"
           grep -Fq "GUEST_HARDWARE_MARKER='ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS'" "$boot"
           grep -Fq 'boot_proof_complete' "$boot"
           grep -Fq 'stop_qemu' "$boot"
+          grep -Fq 'ACCESSIBILITY_STACK = PASS' "$boot"
           grep -Fq 'GUEST_VM_HARDWARE = PASS' "$boot"
           grep -Fq 'FULL_VM_HARDWARE_BOOT = PASS' "$boot"
 
-          # Runtime validation must reject a booted-but-headless or booted-but-mute image.
+          # ADB validation remains a second independent runtime validation path.
           grep -Fq 'service check SurfaceFlinger' "$runtime"
           grep -Fq 'dumpsys SurfaceFlinger' "$runtime"
           grep -Fq '/proc/asound/cards' "$runtime"
           grep -Fq 'service check audio' "$runtime"
+          grep -Fq 'dumpsys accessibility' "$runtime"
+          grep -Fq 'tts_default_synth' "$runtime"
           grep -Fq 'getevent -lp' "$runtime"
           grep -Fq 'ip -o link show' "$runtime"
 
@@ -127,3 +159,4 @@ jobs:
           fi
 
           echo 'ANDROID_VM_HARDWARE_CONTRACT = PASS'
+          echo 'ACCESSIBLE_BOOT_CONTRACT = PASS'
