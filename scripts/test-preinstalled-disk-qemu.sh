@@ -109,6 +109,8 @@ run_boot_test() {
   local qemu_status=0
   local deadline
   local proof_complete=0
+  local boot_started
+  local boot_elapsed
 
   if [[ "$mode" == "uefi" ]]; then
     local ovmf
@@ -144,6 +146,7 @@ run_boot_test() {
   echo "VM_HARDWARE_PROFILE = $HARDWARE_PROFILE"
   echo "BOOT_TIMEOUT_SECONDS = $BOOT_TIMEOUT_SECONDS"
   rm -f "$log"
+  boot_started=$SECONDS
 
   "$QEMU" \
     -machine "$VM_MACHINE,accel=$QEMU_ACCEL" \
@@ -183,28 +186,29 @@ run_boot_test() {
   wait "$qemu_pid"
   qemu_status=$?
   set -e
+  boot_elapsed=$((SECONDS - boot_started))
 
   if ! grep -Fq "$POST_FS_MARKER" "$log"; then
-    echo "ERROR: $mode boot never reached Android post-fs-data (QEMU status $qemu_status)" >&2
+    echo "ERROR: $mode boot never reached Android post-fs-data after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
     tail -n 200 "$log" >&2 || true
     return 6
   fi
 
   if ! grep -Fq "$FRAMEWORK_MARKER" "$log"; then
-    echo "ERROR: $mode boot reached Android userspace but not sys.boot_completed=1 (QEMU status $qemu_status)" >&2
+    echo "ERROR: $mode boot reached Android userspace but not sys.boot_completed=1 after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
     tail -n 200 "$log" >&2 || true
     return 7
   fi
 
   if [[ "$HARDWARE_PROFILE" == "full" ]] && ! grep -Fq "$GUEST_HARDWARE_MARKER" "$log"; then
-    echo "ERROR: $mode boot completed but the in-guest VM hardware probe did not pass (QEMU status $qemu_status)" >&2
+    echo "ERROR: $mode boot completed but the in-guest VM hardware probe did not pass after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
     grep -F 'ACCESSIBLE_ANDROID_' "$log" >&2 || true
     tail -n 200 "$log" >&2 || true
     return 11
   fi
 
   [[ "$proof_complete" -eq 1 ]] || {
-    echo "ERROR: $mode boot proof was incomplete when QEMU stopped" >&2
+    echo "ERROR: $mode boot proof was incomplete when QEMU stopped after ${boot_elapsed}s" >&2
     return 12
   }
 
@@ -214,6 +218,7 @@ run_boot_test() {
     echo "GUEST_VM_HARDWARE = PASS"
     echo "FULL_VM_HARDWARE_BOOT = PASS"
   fi
+  echo "ANDROID_${mode^^}_PROOF_SECONDS = $boot_elapsed"
   echo "LOG = $log"
 }
 
