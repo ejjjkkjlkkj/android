@@ -63,7 +63,11 @@ build_espeak() {
 }
 
 apk_package() {
-  "$AAPT2" dump badging "$1" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1
+  "$AAPT2" dump packagename "$1" | head -n 1 | tr -d '\r'
+}
+
+apk_manifest_tree() {
+  "$AAPT2" dump xmltree "$1" --file AndroidManifest.xml
 }
 
 build_talkback
@@ -76,6 +80,18 @@ TALKBACK_BUILT_PACKAGE="$(apk_package "$DEST_DIR/talkback.apk")"
 ESPEAK_BUILT_PACKAGE="$(apk_package "$DEST_DIR/espeak-ng.apk")"
 [[ -n "$TALKBACK_BUILT_PACKAGE" ]] || fail "unable to determine TalkBack APK package"
 [[ -n "$ESPEAK_BUILT_PACKAGE" ]] || fail "unable to determine eSpeak APK package"
+[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]] || \
+  fail "TalkBack APK package mismatch: expected $TALKBACK_PACKAGE, got $TALKBACK_BUILT_PACKAGE"
+[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]] || \
+  fail "eSpeak APK package mismatch: expected $ESPEAK_PACKAGE, got $ESPEAK_BUILT_PACKAGE"
+
+TALKBACK_SERVICE_CLASS="${TALKBACK_SERVICE#*/}"
+TALKBACK_MANIFEST_TREE="$(apk_manifest_tree "$DEST_DIR/talkback.apk")"
+ESPEAK_MANIFEST_TREE="$(apk_manifest_tree "$DEST_DIR/espeak-ng.apk")"
+printf '%s\n' "$TALKBACK_MANIFEST_TREE" | grep -Fq "$TALKBACK_SERVICE_CLASS" || \
+  fail "TalkBack APK does not declare expected accessibility service: $TALKBACK_SERVICE_CLASS"
+printf '%s\n' "$ESPEAK_MANIFEST_TREE" | grep -Fq 'android.intent.action.TTS_SERVICE' || \
+  fail "eSpeak APK does not declare an Android TTS service"
 
 sha256sum "$DEST_DIR/talkback.apk" "$DEST_DIR/espeak-ng.apk" > "$DEST_DIR/SHA256SUMS.generated"
 
@@ -93,6 +109,8 @@ EOF
 
 echo "ACCESSIBILITY_APPS = BUILT"
 echo "TALKBACK_APK_PACKAGE = $TALKBACK_BUILT_PACKAGE"
+echo "TALKBACK_SERVICE = VERIFIED"
 echo "ESPEAK_APK_PACKAGE = $ESPEAK_BUILT_PACKAGE"
+echo "ESPEAK_TTS_SERVICE = VERIFIED"
 echo "OUTPUT = $DEST_DIR"
 cat "$DEST_DIR/SHA256SUMS.generated"
