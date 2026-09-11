@@ -135,16 +135,18 @@ pub fn validate_media(config: &VmConfig) -> Result<(), String> {
 
 fn add_accessible_android_devices(args: &mut Vec<String>) {
     args.extend([
-        "-vga".to_owned(),
-        "virtio".to_owned(),
+        "-device".to_owned(),
+        "virtio-vga,id=android-gpu".to_owned(),
         "-device".to_owned(),
         "qemu-xhci,id=xhci".to_owned(),
         "-device".to_owned(),
-        "usb-kbd,bus=xhci.0".to_owned(),
+        "usb-kbd,bus=xhci.0,id=android-keyboard".to_owned(),
         "-device".to_owned(),
-        "usb-tablet,bus=xhci.0".to_owned(),
-        "-audio".to_owned(),
-        format!("driver={},model=virtio", host_audio_driver()),
+        "usb-tablet,bus=xhci.0,id=android-tablet".to_owned(),
+        "-audiodev".to_owned(),
+        format!("{},id=android-audio", host_audio_driver()),
+        "-device".to_owned(),
+        "virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound".to_owned(),
     ]);
 }
 
@@ -281,13 +283,21 @@ mod tests {
             ..VmConfig::default()
         };
         let args = build_args(&config).unwrap();
-        assert!(args.windows(2).any(|pair| pair == ["-vga", "virtio"]));
+        assert!(args.iter().any(|arg| arg == "virtio-vga,id=android-gpu"));
         assert!(args.iter().any(|arg| arg == "qemu-xhci,id=xhci"));
-        assert!(args.iter().any(|arg| arg == "usb-kbd,bus=xhci.0"));
-        assert!(args.iter().any(|arg| arg == "usb-tablet,bus=xhci.0"));
         assert!(args
             .iter()
-            .any(|arg| arg == &format!("driver={},model=virtio", host_audio_driver())));
+            .any(|arg| arg == "usb-kbd,bus=xhci.0,id=android-keyboard"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "usb-tablet,bus=xhci.0,id=android-tablet"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == &format!("{},id=android-audio", host_audio_driver())));
+        assert!(args.iter().any(|arg| {
+            arg == "virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound"
+        }));
+        assert!(!args.iter().any(|arg| arg == "-audio"));
     }
 
     #[test]
