@@ -43,7 +43,7 @@ export PATH="$GRADLE_ROOT/bin:$SDK_ROOT/platform-tools:$SDK_ROOT/cmdline-tools/l
 mkdir -p "$DEST_DIR"
 
 apk_package() {
-  "$AAPT2" dump packagename "$1" | head -n 1 | tr -d '\r'
+  "$AAPT2" dump packagename "$1" | sed -n '1p' | tr -d '\r'
 }
 
 apk_manifest_tree() {
@@ -82,8 +82,8 @@ verify_accessibility_apks() {
   talkback_service_class="${TALKBACK_SERVICE#*/}"
   talkback_manifest_tree="$(apk_manifest_tree "$DEST_DIR/talkback.apk")"
   espeak_manifest_tree="$(apk_manifest_tree "$DEST_DIR/espeak-ng.apk")"
-  printf '%s\n' "$talkback_manifest_tree" | grep -Fq "$talkback_service_class" || return 1
-  printf '%s\n' "$espeak_manifest_tree" | grep -Fq 'android.intent.action.TTS_SERVICE' || return 1
+  grep -Fq "$talkback_service_class" <<<"$talkback_manifest_tree" || return 1
+  grep -Fq 'android.intent.action.TTS_SERVICE' <<<"$espeak_manifest_tree" || return 1
   return 0
 }
 
@@ -120,7 +120,7 @@ build_talkback() {
   ANDROID_SDK="$SDK_ROOT" GRADLE_DEBUG='' GRADLE_STACKTRACE='' bash ./build.sh
 
   local apk
-  apk="$(find . -type f -path '*/build/outputs/apk/*' -name '*.apk' ! -name '*test*' | sort | head -n 1)"
+  apk="$(find . -type f -path '*/build/outputs/apk/*' -name '*.apk' ! -name '*test*' | sort | sed -n '1p')"
   [[ -n "$apk" ]] || fail "TalkBack build produced no APK"
   cp -f "$apk" "$DEST_DIR/talkback.apk"
 }
@@ -132,7 +132,7 @@ build_espeak() {
   ANDROID_HOME="$SDK_ROOT" ANDROID_SDK_ROOT="$SDK_ROOT" ./gradlew --no-daemon assembleDebug
 
   local apk
-  apk="$(find build -type f -path '*/outputs/apk/*' -name '*.apk' ! -name '*test*' | sort | head -n 1)"
+  apk="$(find build -type f -path '*/outputs/apk/*' -name '*.apk' ! -name '*test*' | sort | sed -n '1p')"
   [[ -n "$apk" ]] || fail "eSpeak NG build produced no APK"
   cp -f "$apk" "$DEST_DIR/espeak-ng.apk"
 }
