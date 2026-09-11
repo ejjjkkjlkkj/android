@@ -1,0 +1,87 @@
+name: Android kernel cache contract
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - 'scripts/build-kernel.sh'
+      - 'config/kernel.env'
+      - 'config/kernel-pinned-manifest.xml'
+      - '.github/workflows/preinstalled-android-self-hosted.yml'
+      - '.github/workflows/kernel-cache-contract.yml'
+  pull_request:
+    paths:
+      - 'scripts/build-kernel.sh'
+      - 'config/kernel.env'
+      - 'config/kernel-pinned-manifest.xml'
+      - '.github/workflows/preinstalled-android-self-hosted.yml'
+      - '.github/workflows/kernel-cache-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-kernel-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate fail-closed kernel dist reuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          kernel=scripts/build-kernel.sh
+          workflow=.github/workflows/preinstalled-android-self-hosted.yml
+
+          bash -n "$kernel"
+
+          grep -Fq 'REUSE_KERNEL_DIST="${REUSE_KERNEL_DIST:-0}"' "$kernel"
+          grep -Fq 'CACHE_MARKER="$KERNEL_DIST_DIR/.kernel-build-input.sha256"' "$kernel"
+          grep -Fq 'kernel_build_fingerprint()' "$kernel"
+          grep -Fq 'sha256sum "$PINNED_MANIFEST"' "$kernel"
+          grep -Fq 'sha256sum "$ROOT_DIR/config/kernel.env"' "$kernel"
+          grep -Fq 'sha256sum "$ROOT_DIR/scripts/build-kernel.sh"' "$kernel"
+          grep -Fq 'required_modules=%s' "$kernel"
+          grep -Fq 'validate_kernel_dist()' "$kernel"
+          grep -Fq 'sha256sum -c SHA256SUMS' "$kernel"
+          grep -Fq 'cd "$KERNEL_DIST_DIR"' "$kernel"
+          grep -Fq 'sha256sum "$KERNEL_IMAGE_NAME" initramfs.img > SHA256SUMS' "$kernel"
+          grep -Fq 'KERNEL_BUILD_CACHE = HIT' "$kernel"
+          grep -Fq 'KERNEL_BUILD_CACHE = STALE' "$kernel"
+          grep -Fq 'KERNEL_BUILD_CACHE = MISS' "$kernel"
+
+          if grep -Fq 'cd / && sha256sum -c' "$kernel"; then
+            echo 'ERROR: kernel cache checksum validation must be relative to KERNEL_DIST_DIR.' >&2
+            exit 1
+          fi
+
+          grep -Fq 'force_kernel_rebuild:' "$workflow"
+          grep -Fq 'REUSE_KERNEL_DIST:' "$workflow"
+          grep -Fq "inputs.force_kernel_rebuild && '0' || '1'" "$workflow"
+          grep -Fq 'build-from-zero.txt' "$workflow"
+          grep -Fq 'KERNEL_BUILD_CACHE|KERNEL_BUILD_FINGERPRINT|KERNEL_BUILD' "$workflow"
+
+          # Prove the relative SHA256 recipe itself rejects corruption.
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          printf 'kernel\n' > "$tmp/bzImage"
+          printf 'initramfs\n' > "$tmp/initramfs.img"
+          (
+            cd "$tmp"
+            sha256sum bzImage initramfs.img > SHA256SUMS
+            sha256sum -c SHA256SUMS >/dev/null
+          )
+          printf 'corruption\n' >> "$tmp/bzImage"
+          if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+            echo 'ERROR: corrupted cached kernel payload was accepted.' >&2
+            exit 1
+          fi
+
+          echo 'KERNEL_CACHE_FAIL_CLOSED = PASS'
