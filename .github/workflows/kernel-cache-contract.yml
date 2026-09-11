@@ -52,7 +52,9 @@ jobs:
           grep -Fq 'validate_kernel_dist()' "$kernel"
           grep -Fq 'sha256sum -c SHA256SUMS' "$kernel"
           grep -Fq 'cd "$KERNEL_DIST_DIR"' "$kernel"
-          grep -Fq 'sha256sum "$KERNEL_IMAGE_NAME" initramfs.img > SHA256SUMS' "$kernel"
+          grep -Fq 'sha256sum "$KERNEL_IMAGE_NAME" initramfs.img' "$kernel"
+          grep -Fq "find . -type f -name '*.ko' -print0" "$kernel"
+          grep -Fq 'xargs -0 -r sha256sum' "$kernel"
           grep -Fq 'KERNEL_BUILD_CACHE = HIT' "$kernel"
           grep -Fq 'KERNEL_BUILD_CACHE = STALE' "$kernel"
           grep -Fq 'KERNEL_BUILD_CACHE = MISS' "$kernel"
@@ -68,20 +70,35 @@ jobs:
           grep -Fq 'build-from-zero.txt' "$workflow"
           grep -Fq 'KERNEL_BUILD_CACHE|KERNEL_BUILD_FINGERPRINT|KERNEL_BUILD' "$workflow"
 
-          # Prove the relative SHA256 recipe itself rejects corruption.
+          # Prove the relative SHA256 recipe rejects both core-image and module corruption.
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/modules"
           printf 'kernel\n' > "$tmp/bzImage"
           printf 'initramfs\n' > "$tmp/initramfs.img"
+          printf 'virtio-snd\n' > "$tmp/modules/virtio_snd.ko"
           (
             cd "$tmp"
-            sha256sum bzImage initramfs.img > SHA256SUMS
+            {
+              sha256sum bzImage initramfs.img
+              find . -type f -name '*.ko' -print0 | sort -z | xargs -0 -r sha256sum
+            } > SHA256SUMS
             sha256sum -c SHA256SUMS >/dev/null
           )
+
+          cp "$tmp/bzImage" "$tmp/bzImage.good"
           printf 'corruption\n' >> "$tmp/bzImage"
           if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
-            echo 'ERROR: corrupted cached kernel payload was accepted.' >&2
+            echo 'ERROR: corrupted cached kernel image was accepted.' >&2
+            exit 1
+          fi
+          mv "$tmp/bzImage.good" "$tmp/bzImage"
+
+          printf 'corruption\n' >> "$tmp/modules/virtio_snd.ko"
+          if (cd "$tmp" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+            echo 'ERROR: corrupted cached kernel module was accepted.' >&2
             exit 1
           fi
 
           echo 'KERNEL_CACHE_FAIL_CLOSED = PASS'
+          echo 'KERNEL_MODULE_CACHE_INTEGRITY = PASS'
