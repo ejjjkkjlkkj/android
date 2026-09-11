@@ -28,7 +28,8 @@ PRODUCT_USE_DYNAMIC_PARTITIONS := true
 PRODUCT_COPY_FILES += \
     device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR_RAMDISK)/first_stage_ramdisk/fstab.accessible_x86_64 \
     device/accessibledroid/accessible_x86_64/fstab.accessible_x86_64:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.accessible_x86_64 \
-    device/accessibledroid/accessible_x86_64/init.accessibledroid.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.accessibledroid.rc
+    device/accessibledroid/accessible_x86_64/init.accessibledroid.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.accessibledroid.rc \
+    device/accessibledroid/accessible_x86_64/accessible-vm-hardware-probe.sh:$(TARGET_COPY_OUT_VENDOR)/etc/accessible-vm-hardware-probe.sh
 
 # Portable QEMU VM userspace hardware: DRM/HWC3 + minigbm + SwiftShader,
 # Android 17 AIDL audio over virtio-snd, and USB host feature declaration.
