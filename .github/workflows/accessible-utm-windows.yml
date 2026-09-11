@@ -56,13 +56,9 @@ jobs:
             throw "PowerShell parser found $($errors.Count) error(s) in $path"
           }
 
-      - name: Cargo check
+      - name: Cargo tests in release profile
         shell: pwsh
-        run: cargo check --manifest-path accessible-utm/Cargo.toml
-
-      - name: Cargo unit tests
-        shell: pwsh
-        run: cargo test --manifest-path accessible-utm/Cargo.toml
+        run: cargo test --release --manifest-path accessible-utm/Cargo.toml
 
       - name: Build release executable
         shell: pwsh
