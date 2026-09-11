@@ -86,7 +86,9 @@ echo "AUDIO_DEVICE = PASS"
 
 # AccessibleUTM intentionally fixes the boot-critical Android PCI topology.
 # Validate it from inside the guest so a host-side argument regression cannot
-# silently produce a different device layout.
+# silently produce a different device layout. $slot is intentionally expanded
+# by the remote Android shell, not by this host-side script.
+# shellcheck disable=SC2016
 pci_contract="$(adb_cmd shell 'for slot in 0000:00:06.0 0000:00:07.0 0000:00:08.0; do test -e /sys/bus/pci/devices/$slot || exit 1; done; echo PASS' 2>/dev/null | tr -d '\r' || true)"
 [[ "$pci_contract" == "PASS" ]] || fail "expected AccessibleAndroid PCI slots 00:06.0/00:07.0/00:08.0 are not all present"
 
