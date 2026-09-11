@@ -14,6 +14,7 @@ QEMU="${QEMU:-$(command -v qemu-system-x86_64 || true)}"
 QEMU_ACCEL="${QEMU_ACCEL:-tcg}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-300}"
 TEST_MODE="${TEST_MODE:-all}"
+HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"
 FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'
 POST_FS_MARKER='ACCESSIBLE_ANDROID_POST_FS_DATA=PASS'
 
@@ -56,10 +57,27 @@ find_ovmf() {
   return 1
 }
 
+validate_full_hardware_support() {
+  [[ "$HARDWARE_PROFILE" == "full" ]] || return 0
+
+  local device_help
+  device_help="$($QEMU -device help 2>&1 || true)"
+  local device
+  for device in virtio-vga qemu-xhci usb-kbd usb-tablet virtio-sound-pci; do
+    if ! grep -Fq "$device" <<<"$device_help"; then
+      echo "ERROR: QEMU does not expose required VM device: $device" >&2
+      return 9
+    fi
+  done
+
+  echo "QEMU_VM_HARDWARE_CAPABILITIES = PASS"
+}
+
 run_boot_test() {
   local mode="$1"
   local log="$BUILD_LOG_DIR/preinstalled-android-${mode}.log"
   local -a firmware_args=()
+  local -a hardware_args=()
 
   if [[ "$mode" == "uefi" ]]; then
     local ovmf
@@ -70,9 +88,29 @@ run_boot_test() {
     firmware_args=(-bios "$ovmf")
   fi
 
+  case "$HARDWARE_PROFILE" in
+    full)
+      hardware_args=(
+        -device 'virtio-vga,id=android-gpu'
+        -device 'qemu-xhci,id=xhci'
+        -device 'usb-kbd,bus=xhci.0,id=android-keyboard'
+        -device 'usb-tablet,bus=xhci.0,id=android-tablet'
+        -audiodev 'none,id=android-audio'
+        -device 'virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound'
+      )
+      ;;
+    headless)
+      ;;
+    *)
+      echo "ERROR: HARDWARE_PROFILE must be full or headless" >&2
+      return 10
+      ;;
+  esac
+
   echo "==> QEMU preinstalled Android test: $mode"
   echo "QEMU_ACCEL = $QEMU_ACCEL"
   echo "QEMU_CPU = $CPU_MODEL"
+  echo "VM_HARDWARE_PROFILE = $HARDWARE_PROFILE"
   rm -f "$log"
 
   set +e
@@ -88,6 +126,7 @@ run_boot_test() {
       -device 'virtio-rng-pci,bus=pcie.0,addr=0x7' \
       -netdev user,id=net0 \
       -device 'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8' \
+      "${hardware_args[@]}" \
       -boot order=c \
       -snapshot \
       -display none \
@@ -112,8 +151,13 @@ run_boot_test() {
 
   echo "PREINSTALLED_ANDROID_${mode^^} = PASS"
   echo "FRAMEWORK_BOOT = PASS"
+  if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    echo "FULL_VM_HARDWARE_BOOT = PASS"
+  fi
   echo "LOG = $log"
 }
+
+validate_full_hardware_support
 
 case "$TEST_MODE" in
   bios)
