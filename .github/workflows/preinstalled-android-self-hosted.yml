@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_accessibility_rebuild:
+        description: 'Ignore verified cached TalkBack/eSpeak APKs and rebuild them'
+        required: false
+        default: false
+        type: boolean
       export_all_formats:
         description: 'Also export VDI and VMDK in addition to QCOW2'
         required: false
@@ -55,6 +60,7 @@ jobs:
       ANDROID_BUILD_JOBS: ${{ inputs.android_build_jobs }}
       KERNEL_SYNC_JOBS: ${{ inputs.kernel_sync_jobs }}
       REUSE_KERNEL_DIST: ${{ inputs.force_kernel_rebuild && '0' || '1' }}
+      REUSE_ACCESSIBILITY_APPS: ${{ inputs.force_accessibility_rebuild && '0' || '1' }}
       BOOT_TIMEOUT_SECONDS: '360'
     steps:
       - name: Checkout project without deleting the persistent AOSP workspace
@@ -176,12 +182,16 @@ jobs:
             echo "runner_arch=${RUNNER_ARCH}"
             echo "qemu_accel=${QEMU_ACCEL:-unknown}"
             echo "reuse_kernel_dist=${REUSE_KERNEL_DIST:-0}"
+            echo "reuse_accessibility_apps=${REUSE_ACCESSIBILITY_APPS:-0}"
             echo "force_kernel_rebuild=${{ inputs.force_kernel_rebuild }}"
+            echo "force_accessibility_rebuild=${{ inputs.force_accessibility_rebuild }}"
             echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
             cat config/upstream.env
             echo
             cat config/kernel.env
+            echo
+            cat config/accessibility-upstreams.env
             echo
             cat config/vm.env
           } > .work/logs/preinstalled-build-provenance.txt
@@ -200,11 +210,12 @@ jobs:
             echo "Commit: ${GITHUB_SHA}"
             echo "QEMU acceleration: ${QEMU_ACCEL:-unknown}"
             echo "Verified kernel reuse: ${REUSE_KERNEL_DIST:-0}"
+            echo "Verified accessibility APK reuse: ${REUSE_ACCESSIBILITY_APPS:-0}"
             echo
             if [[ -f .work/logs/build-from-zero.txt ]]; then
-              echo '### Kernel build/cache'
+              echo '### Build caches'
               echo '```text'
-              grep -E '^(KERNEL_BUILD_CACHE|KERNEL_BUILD_FINGERPRINT|KERNEL_BUILD) = ' .work/logs/build-from-zero.txt || true
+              grep -E '^(KERNEL_BUILD_CACHE|KERNEL_BUILD_FINGERPRINT|KERNEL_BUILD|ACCESSIBILITY_APPS_CACHE|ACCESSIBILITY_APPS_FINGERPRINT|ACCESSIBILITY_APPS|TALKBACK_APK_PACKAGE|TALKBACK_SERVICE|ESPEAK_APK_PACKAGE|ESPEAK_TTS_SERVICE) = ' .work/logs/build-from-zero.txt || true
               echo '```'
             fi
             if [[ -f .work/logs/preinstalled-qemu-proof.txt ]]; then
