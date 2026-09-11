@@ -7,6 +7,8 @@ on:
     paths:
       - 'device/accessibledroid/accessible_x86_64/**'
       - 'vendor/accessibledroid/**'
+      - 'config/accessibility-upstreams.env'
+      - 'scripts/build-accessibility-apps.sh'
       - 'accessible-utm/src/qemu.rs'
       - 'scripts/test-preinstalled-disk-qemu.sh'
       - 'scripts/validate-vm-runtime.sh'
@@ -15,6 +17,8 @@ on:
     paths:
       - 'device/accessibledroid/accessible_x86_64/**'
       - 'vendor/accessibledroid/**'
+      - 'config/accessibility-upstreams.env'
+      - 'scripts/build-accessibility-apps.sh'
       - 'accessible-utm/src/qemu.rs'
       - 'scripts/test-preinstalled-disk-qemu.sh'
       - 'scripts/validate-vm-runtime.sh'
@@ -45,6 +49,8 @@ jobs:
           initrc=device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           probe=device/accessibledroid/accessible_x86_64/accessible-vm-hardware-probe.sh
           accessibility=vendor/accessibledroid/product/accessibility.mk
+          upstream=config/accessibility-upstreams.env
+          appbuild=scripts/build-accessibility-apps.sh
           bootstrap=vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
           qemu=accessible-utm/src/qemu.rs
           boot=scripts/test-preinstalled-disk-qemu.sh
@@ -53,8 +59,11 @@ jobs:
           test -s "$hw"
           test -s "$probe"
           test -s "$accessibility"
+          test -s "$upstream"
+          test -s "$appbuild"
           test -s "$bootstrap"
           sh -n "$probe"
+          bash -n "$appbuild"
           grep -Fq '$(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)' "$product"
           grep -Fq 'accessible-vm-hardware-probe.sh:$(TARGET_COPY_OUT_VENDOR)/etc/accessible-vm-hardware-probe.sh' "$product"
           grep -Fq '/system/bin/sh /vendor/etc/accessible-vm-hardware-probe.sh' "$initrc"
@@ -65,12 +74,27 @@ jobs:
           grep -Fq 'AccessibleEspeakTts' "$accessibility"
           grep -Fq 'ro.vendor.accessibledroid.accessibility_required=true' "$accessibility"
           grep -Fq 'ro.vendor.accessibledroid.offline_tts_required=true' "$accessibility"
+          grep -Fq 'TALKBACK_PACKAGE=com.google.android.accessibility.talkback' "$upstream"
+          grep -Fq 'TALKBACK_SERVICE=com.google.android.accessibility.talkback/com.google.android.marvin.talkback.TalkBackService' "$upstream"
+          grep -Fq 'ESPEAK_PACKAGE=com.reecedunn.espeak' "$upstream"
           grep -Fq 'com.google.android.accessibility.talkback' "$bootstrap"
           grep -Fq 'com.google.android.marvin.talkback.TalkBackService' "$bootstrap"
           grep -Fq 'com.reecedunn.espeak' "$bootstrap"
           grep -Fq 'Settings.Secure.ACCESSIBILITY_ENABLED' "$bootstrap"
           grep -Fq 'Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES' "$bootstrap"
           grep -Fq 'TTS_DEFAULT_SYNTH' "$bootstrap"
+
+          # Generated APKs must match the pinned package/service contract before
+          # they can be copied into the AOSP tree.
+          grep -Fq '[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]]' "$appbuild"
+          grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$appbuild"
+          grep -Fq 'dump packagename' "$appbuild"
+          grep -Fq 'dump xmltree' "$appbuild"
+          grep -Fq 'TALKBACK_SERVICE_CLASS="${TALKBACK_SERVICE#*/}"' "$appbuild"
+          grep -Fq 'android.intent.action.TTS_SERVICE' "$appbuild"
+          grep -Fq 'TALKBACK_SERVICE = VERIFIED' "$appbuild"
+          grep -Fq 'ESPEAK_TTS_SERVICE = VERIFIED' "$appbuild"
+
           grep -Fq 'TALKBACK_COMPONENT=com.google.android.accessibility.talkback/com.google.android.marvin.talkback.TalkBackService' "$probe"
           grep -Fq 'ESPEAK_PACKAGE=com.reecedunn.espeak' "$probe"
           grep -Fq 'ACCESSIBILITY_WAIT_SECONDS=45' "$probe"
@@ -160,3 +184,4 @@ jobs:
 
           echo 'ANDROID_VM_HARDWARE_CONTRACT = PASS'
           echo 'ACCESSIBLE_BOOT_CONTRACT = PASS'
+          echo 'ACCESSIBILITY_APK_IDENTITY_CONTRACT = PASS'
