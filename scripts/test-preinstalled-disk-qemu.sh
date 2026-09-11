@@ -61,7 +61,7 @@ validate_full_hardware_support() {
   [[ "$HARDWARE_PROFILE" == "full" ]] || return 0
 
   local device_help
-  device_help="$($QEMU -device help 2>&1 || true)"
+  device_help="$("$QEMU" -device help 2>&1 || true)"
   local device
   for device in virtio-vga qemu-xhci usb-kbd usb-tablet virtio-sound-pci; do
     if ! grep -Fq "$device" <<<"$device_help"; then
