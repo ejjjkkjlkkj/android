@@ -7,3 +7,10 @@ on post-fs-data
 
 on property:sys.boot_completed=1
     write /dev/ttyS0 ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS
+
+# Userdebug/eng validation path: prove that the devices presented by QEMU are
+# actually visible from inside Android. The probe writes a final PASS marker to
+# ttyS0 only after disk/rng/network PCI, DRM, virtio-snd and accessible input
+# checks all succeed. Production user builds do not run this diagnostic probe.
+on property:sys.boot_completed=1 && property:ro.debuggable=1
+    exec_background u:r:su:s0 -- /system/bin/sh /vendor/etc/accessible-vm-hardware-probe.sh
