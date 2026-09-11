@@ -17,6 +17,7 @@ TEST_MODE="${TEST_MODE:-all}"
 HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"
 FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'
 POST_FS_MARKER='ACCESSIBLE_ANDROID_POST_FS_DATA=PASS'
+GUEST_ACCESSIBILITY_MARKER='ACCESSIBLE_ANDROID_ACCESSIBILITY_STACK=PASS'
 GUEST_HARDWARE_MARKER='ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS'
 
 if [[ -n "${QEMU_CPU:-}" ]]; then
@@ -95,6 +96,7 @@ boot_proof_complete() {
   grep -Fq "$POST_FS_MARKER" "$log" || return 1
   grep -Fq "$FRAMEWORK_MARKER" "$log" || return 1
   if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    grep -Fq "$GUEST_ACCESSIBILITY_MARKER" "$log" || return 1
     grep -Fq "$GUEST_HARDWARE_MARKER" "$log" || return 1
   fi
   return 0
@@ -200,21 +202,29 @@ run_boot_test() {
     return 7
   fi
 
-  if [[ "$HARDWARE_PROFILE" == "full" ]] && ! grep -Fq "$GUEST_HARDWARE_MARKER" "$log"; then
-    echo "ERROR: $mode boot completed but the in-guest VM hardware probe did not pass after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
+  if [[ "$HARDWARE_PROFILE" == "full" ]] && ! grep -Fq "$GUEST_ACCESSIBILITY_MARKER" "$log"; then
+    echo "ERROR: $mode boot completed but TalkBack/offline TTS accessibility proof did not pass after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
     grep -F 'ACCESSIBLE_ANDROID_' "$log" >&2 || true
     tail -n 200 "$log" >&2 || true
     return 11
   fi
 
+  if [[ "$HARDWARE_PROFILE" == "full" ]] && ! grep -Fq "$GUEST_HARDWARE_MARKER" "$log"; then
+    echo "ERROR: $mode boot completed but the in-guest VM hardware probe did not pass after ${boot_elapsed}s (QEMU status $qemu_status)" >&2
+    grep -F 'ACCESSIBLE_ANDROID_' "$log" >&2 || true
+    tail -n 200 "$log" >&2 || true
+    return 12
+  fi
+
   [[ "$proof_complete" -eq 1 ]] || {
     echo "ERROR: $mode boot proof was incomplete when QEMU stopped after ${boot_elapsed}s" >&2
-    return 12
+    return 13
   }
 
   echo "PREINSTALLED_ANDROID_${mode^^} = PASS"
   echo "FRAMEWORK_BOOT = PASS"
   if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    echo "ACCESSIBILITY_STACK = PASS"
     echo "GUEST_VM_HARDWARE = PASS"
     echo "FULL_VM_HARDWARE_BOOT = PASS"
   fi
