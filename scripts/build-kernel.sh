@@ -54,7 +54,7 @@ validate_kernel_dist() {
     find "$KERNEL_DIST_DIR" -type f -name "$module" -print -quit | grep -q . || return 1
   done
 
-  (cd / && sha256sum -c "$KERNEL_DIST_DIR/SHA256SUMS" >/dev/null 2>&1) || return 1
+  (cd "$KERNEL_DIST_DIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1) || return 1
   return 0
 }
 
@@ -111,10 +111,10 @@ for module in "${required_modules[@]}"; do
   fi
 done
 
-{
-  sha256sum "$KERNEL_IMAGE"
-  sha256sum "$KERNEL_DIST_DIR/initramfs.img"
-} > "$KERNEL_DIST_DIR/SHA256SUMS"
+(
+  cd "$KERNEL_DIST_DIR"
+  sha256sum "$KERNEL_IMAGE_NAME" initramfs.img > SHA256SUMS
+)
 
 find "$KERNEL_DIST_DIR" -type f -name '*.ko' -printf '%f\n' | sort -u > "$KERNEL_DIST_DIR/VM-MODULES.txt"
 printf '%s\n' "$BUILD_FINGERPRINT" > "$CACHE_MARKER"
