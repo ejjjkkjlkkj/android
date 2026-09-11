@@ -17,6 +17,7 @@ TEST_MODE="${TEST_MODE:-all}"
 HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"
 FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'
 POST_FS_MARKER='ACCESSIBLE_ANDROID_POST_FS_DATA=PASS'
+GUEST_HARDWARE_MARKER='ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS'
 
 if [[ -n "${QEMU_CPU:-}" ]]; then
   CPU_MODEL="$QEMU_CPU"
@@ -34,10 +35,6 @@ fi
   echo "ERROR: preinstalled QCOW2 disk not found at $DISK" >&2
   echo "Run scripts/build-preinstalled-disk.sh first." >&2
   exit 3
-}
-command -v timeout >/dev/null 2>&1 || {
-  echo "ERROR: timeout is required" >&2
-  exit 4
 }
 
 mkdir -p "$BUILD_LOG_DIR"
@@ -73,11 +70,45 @@ validate_full_hardware_support() {
   echo "QEMU_VM_HARDWARE_CAPABILITIES = PASS"
 }
 
+stop_qemu() {
+  local pid="$1"
+  local i
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  kill "$pid" 2>/dev/null || true
+  for ((i = 0; i < 20; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+boot_proof_complete() {
+  local log="$1"
+
+  grep -Fq "$POST_FS_MARKER" "$log" || return 1
+  grep -Fq "$FRAMEWORK_MARKER" "$log" || return 1
+  if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    grep -Fq "$GUEST_HARDWARE_MARKER" "$log" || return 1
+  fi
+  return 0
+}
+
 run_boot_test() {
   local mode="$1"
   local log="$BUILD_LOG_DIR/preinstalled-android-${mode}.log"
   local -a firmware_args=()
   local -a hardware_args=()
+  local qemu_pid
+  local qemu_status=0
+  local deadline
+  local proof_complete=0
 
   if [[ "$mode" == "uefi" ]]; then
     local ovmf
@@ -111,30 +142,46 @@ run_boot_test() {
   echo "QEMU_ACCEL = $QEMU_ACCEL"
   echo "QEMU_CPU = $CPU_MODEL"
   echo "VM_HARDWARE_PROFILE = $HARDWARE_PROFILE"
+  echo "BOOT_TIMEOUT_SECONDS = $BOOT_TIMEOUT_SECONDS"
   rm -f "$log"
 
+  "$QEMU" \
+    -machine "$VM_MACHINE,accel=$QEMU_ACCEL" \
+    -cpu "$CPU_MODEL" \
+    -m "$VM_MEMORY_MIB" \
+    -smp "$VM_CPUS" \
+    "${firmware_args[@]}" \
+    -drive "if=none,id=$VM_OS_DISK_ID,file=$DISK,format=qcow2,cache=writeback" \
+    -device "virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR,bootindex=1" \
+    -device 'virtio-rng-pci,bus=pcie.0,addr=0x7' \
+    -netdev user,id=net0 \
+    -device 'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8' \
+    "${hardware_args[@]}" \
+    -boot order=c \
+    -snapshot \
+    -display none \
+    -serial stdio \
+    -monitor none \
+    -no-reboot \
+    >"$log" 2>&1 &
+  qemu_pid=$!
+  deadline=$((SECONDS + BOOT_TIMEOUT_SECONDS))
+
+  while ((SECONDS < deadline)); do
+    if boot_proof_complete "$log"; then
+      proof_complete=1
+      break
+    fi
+    if ! kill -0 "$qemu_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+
+  stop_qemu "$qemu_pid"
   set +e
-  timeout --signal=TERM "$BOOT_TIMEOUT_SECONDS" \
-    "$QEMU" \
-      -machine "$VM_MACHINE,accel=$QEMU_ACCEL" \
-      -cpu "$CPU_MODEL" \
-      -m "$VM_MEMORY_MIB" \
-      -smp "$VM_CPUS" \
-      "${firmware_args[@]}" \
-      -drive "if=none,id=$VM_OS_DISK_ID,file=$DISK,format=qcow2,cache=writeback" \
-      -device "virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR,bootindex=1" \
-      -device 'virtio-rng-pci,bus=pcie.0,addr=0x7' \
-      -netdev user,id=net0 \
-      -device 'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8' \
-      "${hardware_args[@]}" \
-      -boot order=c \
-      -snapshot \
-      -display none \
-      -serial stdio \
-      -monitor none \
-      -no-reboot \
-      >"$log" 2>&1
-  local qemu_status=$?
+  wait "$qemu_pid"
+  qemu_status=$?
   set -e
 
   if ! grep -Fq "$POST_FS_MARKER" "$log"; then
@@ -149,9 +196,22 @@ run_boot_test() {
     return 7
   fi
 
+  if [[ "$HARDWARE_PROFILE" == "full" ]] && ! grep -Fq "$GUEST_HARDWARE_MARKER" "$log"; then
+    echo "ERROR: $mode boot completed but the in-guest VM hardware probe did not pass (QEMU status $qemu_status)" >&2
+    grep -F 'ACCESSIBLE_ANDROID_' "$log" >&2 || true
+    tail -n 200 "$log" >&2 || true
+    return 11
+  fi
+
+  [[ "$proof_complete" -eq 1 ]] || {
+    echo "ERROR: $mode boot proof was incomplete when QEMU stopped" >&2
+    return 12
+  }
+
   echo "PREINSTALLED_ANDROID_${mode^^} = PASS"
   echo "FRAMEWORK_BOOT = PASS"
   if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    echo "GUEST_VM_HARDWARE = PASS"
     echo "FULL_VM_HARDWARE_BOOT = PASS"
   fi
   echo "LOG = $log"
