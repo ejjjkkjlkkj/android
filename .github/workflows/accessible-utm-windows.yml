@@ -91,16 +91,26 @@ jobs:
             'virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6,bootindex=1',
             'virtio-rng-pci,bus=pcie.0,addr=0x7',
             'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8',
-            '-vga virtio',
+            'virtio-vga,id=android-gpu',
             'qemu-xhci,id=xhci',
-            'usb-kbd,bus=xhci.0',
-            'usb-tablet,bus=xhci.0',
-            'driver=dsound,model=virtio',
+            'usb-kbd,bus=xhci.0,id=android-keyboard',
+            'usb-tablet,bus=xhci.0,id=android-tablet',
+            '-audiodev dsound,id=android-audio',
+            'virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound',
             '-bios OVMF_CODE.fd'
           )
           foreach ($needle in $requiredAndroid) {
             if ($android -notlike "*$needle*") { throw "Android contract missing '$needle'`n$android" }
           }
+          $forbiddenAndroid = @(
+            '-vga virtio',
+            '-audio ',
+            'driver=dsound,model=virtio'
+          )
+          foreach ($needle in $forbiddenAndroid) {
+            if ($android -like "*$needle*") { throw "Deprecated Android QEMU syntax still present '$needle'`n$android" }
+          }
+          Write-Host 'ACCESSIBLE_UTM_ANDROID_VM_CONTRACT = PASS'
           Write-Host $android
 
       - name: Verify ARM64 and RISC-V command generation
@@ -117,6 +127,7 @@ jobs:
           if ($riscv -notlike '*qemu-system-riscv64*') { throw "RISC-V QEMU executable missing.`n$riscv" }
           if ($riscv -notlike '*virt,accel=tcg*') { throw "RISC-V virt/TCG machine missing.`n$riscv" }
 
+          Write-Host 'MULTI_ARCH_COMMAND_GENERATION = PASS'
           Write-Host $arm
           Write-Host $riscv
 
