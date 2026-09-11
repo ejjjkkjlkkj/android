@@ -62,9 +62,8 @@ jobs:
           grep -Fq 'libGLESv2_swiftshader' "$hw"
           grep -Fq 'ro.hardware.egl=swiftshader' "$hw"
           grep -Fq 'virtio-gpu.ko' "$board"
-          grep -Fq '"-vga".to_owned()' "$qemu"
-          grep -Fq '"virtio".to_owned()' "$qemu"
-          grep -Fq "virtio-vga,id=android-gpu" "$boot"
+          grep -Fq 'virtio-vga,id=android-gpu' "$qemu"
+          grep -Fq 'virtio-vga,id=android-gpu' "$boot"
           grep -Fq '/dev/dri/card0' "$probe"
 
           # Android 17 AIDL audio backed by ALSA/virtio-snd.
@@ -72,15 +71,21 @@ jobs:
           grep -Fq 'device_google_cuttlefish_shared_config_audio_policy' "$hw"
           grep -Fq 'hardware/interfaces/audio/aidl/default/audio_effects.mk' "$hw"
           grep -Fq 'virtio_snd.ko' "$board"
-          grep -Fq 'model=virtio' "$qemu"
+          grep -Fq 'format!("{},id=android-audio", host_audio_driver())' "$qemu"
+          grep -Fq 'virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound' "$qemu"
           grep -Fq 'virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound' "$boot"
           grep -Fq "none,id=android-audio" "$boot"
           grep -Fq '/proc/asound/cards' "$probe"
           grep -Fq 'AUDIO_VIRTIO=PASS' "$probe"
+          if grep -Fq '"-audio".to_owned()' "$qemu"; then
+            echo 'ERROR: AccessibleUTM must use explicit -audiodev + virtio-sound-pci, not -audio shorthand.' >&2
+            exit 1
+          fi
 
           # Keyboard and absolute pointing device are first-class VM input.
-          grep -Fq 'usb-kbd,bus=xhci.0' "$qemu"
-          grep -Fq 'usb-tablet,bus=xhci.0' "$qemu"
+          grep -Fq 'qemu-xhci,id=xhci' "$qemu"
+          grep -Fq 'usb-kbd,bus=xhci.0,id=android-keyboard' "$qemu"
+          grep -Fq 'usb-tablet,bus=xhci.0,id=android-tablet' "$qemu"
           grep -Fq "qemu-xhci,id=xhci" "$boot"
           grep -Fq "usb-kbd,bus=xhci.0,id=android-keyboard" "$boot"
           grep -Fq "usb-tablet,bus=xhci.0,id=android-tablet" "$boot"
