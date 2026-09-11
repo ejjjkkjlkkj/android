@@ -1,0 +1,94 @@
+name: Accessibility APK cache contract
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - 'scripts/build-accessibility-apps.sh'
+      - 'scripts/install-device-tree.sh'
+      - 'config/accessibility-upstreams.env'
+      - 'config/toolchain.env'
+      - '.github/workflows/preinstalled-android-self-hosted.yml'
+      - '.github/workflows/accessibility-cache-contract.yml'
+  pull_request:
+    paths:
+      - 'scripts/build-accessibility-apps.sh'
+      - 'scripts/install-device-tree.sh'
+      - 'config/accessibility-upstreams.env'
+      - 'config/toolchain.env'
+      - '.github/workflows/preinstalled-android-self-hosted.yml'
+      - '.github/workflows/accessibility-cache-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessibility-apk-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate fail-closed accessibility APK reuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          build=scripts/build-accessibility-apps.sh
+          install=scripts/install-device-tree.sh
+          workflow=.github/workflows/preinstalled-android-self-hosted.yml
+
+          bash -n "$build"
+          bash -n "$install"
+
+          grep -Fq 'REUSE_ACCESSIBILITY_APPS="${REUSE_ACCESSIBILITY_APPS:-0}"' "$build"
+          grep -Fq 'CACHE_MARKER="$DEST_DIR/BUILD-CACHE.generated"' "$build"
+          grep -Fq 'accessibility_build_fingerprint()' "$build"
+          grep -Fq 'sha256sum "$ROOT_DIR/config/accessibility-upstreams.env"' "$build"
+          grep -Fq 'sha256sum "$ROOT_DIR/config/toolchain.env"' "$build"
+          grep -Fq 'sha256sum "$ROOT_DIR/scripts/build-accessibility-apps.sh"' "$build"
+          grep -Fq 'talkback_head=%s' "$build"
+          grep -Fq 'espeak_head=%s' "$build"
+          grep -Fq 'verify_accessibility_apks()' "$build"
+          grep -Fq 'sha256sum -c SHA256SUMS.generated' "$build"
+          grep -Fq '[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]]' "$build"
+          grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$build"
+          grep -Fq 'dump xmltree' "$build"
+          grep -Fq 'android.intent.action.TTS_SERVICE' "$build"
+          grep -Fq 'ACCESSIBILITY_APPS_CACHE = HIT' "$build"
+          grep -Fq 'ACCESSIBILITY_APPS_CACHE = STALE' "$build"
+          grep -Fq 'ACCESSIBILITY_APPS_CACHE = MISS' "$build"
+
+          # Device-tree refresh must preserve the generated APKs, SHA/provenance,
+          # and BUILD-CACHE.generated marker in the persistent AOSP workspace.
+          grep -Fq "--exclude 'generated-apps/*.apk'" "$install"
+          grep -Fq "--exclude 'generated-apps/*.generated'" "$install"
+
+          grep -Fq 'force_accessibility_rebuild:' "$workflow"
+          grep -Fq 'REUSE_ACCESSIBILITY_APPS:' "$workflow"
+          grep -Fq "inputs.force_accessibility_rebuild && '0' || '1'" "$workflow"
+          grep -Fq 'ACCESSIBILITY_APPS_CACHE|ACCESSIBILITY_APPS_FINGERPRINT|ACCESSIBILITY_APPS' "$workflow"
+
+          # Prove the relative APK SHA recipe rejects a modified cached artifact.
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          printf 'talkback-apk\n' > "$tmp/talkback.apk"
+          printf 'espeak-apk\n' > "$tmp/espeak-ng.apk"
+          (
+            cd "$tmp"
+            sha256sum talkback.apk espeak-ng.apk > SHA256SUMS.generated
+            sha256sum -c SHA256SUMS.generated >/dev/null
+          )
+          printf 'corruption\n' >> "$tmp/espeak-ng.apk"
+          if (cd "$tmp" && sha256sum -c SHA256SUMS.generated >/dev/null 2>&1); then
+            echo 'ERROR: corrupted cached accessibility APK was accepted.' >&2
+            exit 1
+          fi
+
+          echo 'ACCESSIBILITY_APK_CACHE_FAIL_CLOSED = PASS'
+          echo 'ACCESSIBILITY_APK_IDENTITY_VERIFICATION = PASS'
