@@ -111,12 +111,15 @@ for module in "${required_modules[@]}"; do
   fi
 done
 
+find "$KERNEL_DIST_DIR" -type f -name '*.ko' -printf '%f\n' | sort -u > "$KERNEL_DIST_DIR/VM-MODULES.txt"
+
 (
   cd "$KERNEL_DIST_DIR"
-  sha256sum "$KERNEL_IMAGE_NAME" initramfs.img > SHA256SUMS
+  {
+    sha256sum "$KERNEL_IMAGE_NAME" initramfs.img
+    find . -type f -name '*.ko' -print0 | sort -z | xargs -0 -r sha256sum
+  } > SHA256SUMS
 )
-
-find "$KERNEL_DIST_DIR" -type f -name '*.ko' -printf '%f\n' | sort -u > "$KERNEL_DIST_DIR/VM-MODULES.txt"
 printf '%s\n' "$BUILD_FINGERPRINT" > "$CACHE_MARKER"
 
 if [[ -f "$KERNEL_DIST_DIR/kernel.release" ]]; then
