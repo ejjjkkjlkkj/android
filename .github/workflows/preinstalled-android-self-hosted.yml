@@ -43,7 +43,7 @@ concurrency:
 
 jobs:
   build-and-boot:
-    name: Build Android 17 disk and prove BIOS UEFI framework boot
+    name: Build Android 17 disk and prove full BIOS UEFI VM
     runs-on: [self-hosted, Linux, X64, android-build]
     timeout-minutes: 720
     env:
@@ -143,9 +143,13 @@ jobs:
           EXPORT_ALL_FORMATS: ${{ inputs.export_all_formats && '1' || '0' }}
         run: bash scripts/build-preinstalled-disk.sh
 
-      - name: Boot preinstalled disk in BIOS and UEFI through QEMU
+      - name: Boot full preinstalled VM in BIOS and UEFI through QEMU
         shell: bash
-        run: TEST_MODE=all bash scripts/test-preinstalled-disk-qemu.sh
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs
+          TEST_MODE=all HARDWARE_PROFILE=full bash scripts/test-preinstalled-disk-qemu.sh |
+            tee .work/logs/preinstalled-qemu-proof.txt
 
       - name: Record full build provenance
         if: always()
@@ -184,6 +188,12 @@ jobs:
             echo "Commit: ${GITHUB_SHA}"
             echo "QEMU acceleration: ${QEMU_ACCEL:-unknown}"
             echo
+            if [[ -f .work/logs/preinstalled-qemu-proof.txt ]]; then
+              echo '### Full VM proof'
+              echo '```text'
+              grep -E '^(QEMU_VM_HARDWARE_CAPABILITIES|PREINSTALLED_ANDROID_|FRAMEWORK_BOOT|GUEST_VM_HARDWARE|FULL_VM_HARDWARE_BOOT|ANDROID_(BIOS|UEFI)_PROOF_SECONDS|PREINSTALLED_ANDROID_QEMU) = ' .work/logs/preinstalled-qemu-proof.txt || true
+              echo '```'
+            fi
             if [[ -f .work/vm/preinstalled/SHA256SUMS ]]; then
               echo '### Disk artifacts'
               echo '```text'
