@@ -66,8 +66,8 @@ jobs:
 
           # Device-tree refresh must preserve the generated APKs, SHA/provenance,
           # and BUILD-CACHE.generated marker in the persistent AOSP workspace.
-          grep -Fq "--exclude 'generated-apps/*.apk'" "$install"
-          grep -Fq "--exclude 'generated-apps/*.generated'" "$install"
+          grep -Fq -- "--exclude 'generated-apps/*.apk'" "$install"
+          grep -Fq -- "--exclude 'generated-apps/*.generated'" "$install"
 
           grep -Fq 'force_accessibility_rebuild:' "$workflow"
           grep -Fq 'REUSE_ACCESSIBILITY_APPS:' "$workflow"
