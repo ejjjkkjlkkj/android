@@ -40,12 +40,18 @@ jobs:
           hw=device/accessibledroid/accessible_x86_64/vm_hardware.mk
           product=device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
           board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          initrc=device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
+          probe=device/accessibledroid/accessible_x86_64/accessible-vm-hardware-probe.sh
           qemu=accessible-utm/src/qemu.rs
           boot=scripts/test-preinstalled-disk-qemu.sh
           runtime=scripts/validate-vm-runtime.sh
 
           test -s "$hw"
+          test -s "$probe"
+          sh -n "$probe"
           grep -Fq '$(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)' "$product"
+          grep -Fq 'accessible-vm-hardware-probe.sh:$(TARGET_COPY_OUT_VENDOR)/etc/accessible-vm-hardware-probe.sh' "$product"
+          grep -Fq '/system/bin/sh /vendor/etc/accessible-vm-hardware-probe.sh' "$initrc"
 
           # DRM/KMS + minigbm + software GLES for a standard QEMU virtio-gpu.
           grep -Fq 'android.hardware.composer.hwc3-service.drm' "$hw"
@@ -59,6 +65,7 @@ jobs:
           grep -Fq '"-vga".to_owned()' "$qemu"
           grep -Fq '"virtio".to_owned()' "$qemu"
           grep -Fq "virtio-vga,id=android-gpu" "$boot"
+          grep -Fq '/dev/dri/card0' "$probe"
 
           # Android 17 AIDL audio backed by ALSA/virtio-snd.
           grep -Fq 'com.android.hardware.audio' "$hw"
@@ -68,6 +75,8 @@ jobs:
           grep -Fq 'model=virtio' "$qemu"
           grep -Fq 'virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound' "$boot"
           grep -Fq "none,id=android-audio" "$boot"
+          grep -Fq '/proc/asound/cards' "$probe"
+          grep -Fq 'AUDIO_VIRTIO=PASS' "$probe"
 
           # Keyboard and absolute pointing device are first-class VM input.
           grep -Fq 'usb-kbd,bus=xhci.0' "$qemu"
@@ -75,11 +84,24 @@ jobs:
           grep -Fq "qemu-xhci,id=xhci" "$boot"
           grep -Fq "usb-kbd,bus=xhci.0,id=android-keyboard" "$boot"
           grep -Fq "usb-tablet,bus=xhci.0,id=android-tablet" "$boot"
+          grep -Fq '/proc/bus/input/devices' "$probe"
+          grep -Fq 'INPUT_KEYBOARD=PASS' "$probe"
+          grep -Fq 'INPUT_POINTER=PASS' "$probe"
+
+          # The fixed PCI layout must be observed from inside Android too.
+          grep -Fq '/sys/bus/pci/devices/0000:00:06.0' "$probe"
+          grep -Fq '/sys/bus/pci/devices/0000:00:07.0' "$probe"
+          grep -Fq '/sys/bus/pci/devices/0000:00:08.0' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS' "$probe"
 
           # The preinstalled boot test must exercise the full VM hardware bundle,
-          # not merely prove that Android can boot headless.
+          # require the guest-side proof, and stop as soon as proof is complete.
           grep -Fq 'HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"' "$boot"
           grep -Fq 'QEMU_VM_HARDWARE_CAPABILITIES = PASS' "$boot"
+          grep -Fq "GUEST_HARDWARE_MARKER='ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS'" "$boot"
+          grep -Fq 'boot_proof_complete' "$boot"
+          grep -Fq 'stop_qemu' "$boot"
+          grep -Fq 'GUEST_VM_HARDWARE = PASS' "$boot"
           grep -Fq 'FULL_VM_HARDWARE_BOOT = PASS' "$boot"
 
           # Runtime validation must reject a booted-but-headless or booted-but-mute image.
