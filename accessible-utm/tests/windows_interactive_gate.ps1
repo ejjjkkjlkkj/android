@@ -119,7 +119,7 @@ Set-Content -LiteralPath (Join-Path $output 'README.txt') -Value $readme -Encodi
 
 $zipPath = "$output.zip"
 Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-Compress-Archive -LiteralPath (Join-Path $output '*') -DestinationPath $zipPath -CompressionLevel Optimal
+Compress-Archive -Path (Join-Path $output '*') -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host 'ACCESSIBLE_UTM_INTERACTIVE_AUTOMATION = PASS'
 Write-Host 'ACCESSIBLE_UTM_SCREEN_READER_MANUAL_GATE = REQUIRED'
