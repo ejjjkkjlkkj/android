@@ -50,6 +50,7 @@ jobs:
           key: accessible-utm-${{ runner.os }}-${{ hashFiles('accessible-utm/Cargo.toml') }}
           restore-keys: |
             accessible-utm-${{ runner.os }}-
+          save-always: true
 
       - name: Parse AccessibleAndroid launcher
         shell: pwsh
