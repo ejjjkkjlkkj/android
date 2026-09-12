@@ -23,42 +23,58 @@ public static class AccessibleUtmFocus {
 }
 '@
 
+function Add-UiAutomationElement {
+    param(
+        [System.Collections.Generic.List[object]]$Items,
+        [System.Windows.Automation.AutomationElement]$Element
+    )
+
+    try {
+        $Items.Add([pscustomobject]@{
+            Name = [string]$Element.Current.Name
+            ControlType = [string]$Element.Current.ControlType.ProgrammaticName
+            IsEnabled = [bool]$Element.Current.IsEnabled
+            AutomationId = [string]$Element.Current.AutomationId
+        })
+    }
+    catch {
+        # UIA elements may disappear between enumeration and property reads.
+    }
+}
+
 function Get-UiAutomationSnapshot {
-    param([System.Windows.Automation.AutomationElement]$Root)
+    param([IntPtr]$WindowHandle)
 
     $items = [System.Collections.Generic.List[object]]::new()
-    $all = $Root.FindAll(
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+    if ($null -eq $root) {
+        return @()
+    }
+
+    Add-UiAutomationElement -Items $items -Element $root
+
+    $all = $root.FindAll(
         [System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.Condition]::TrueCondition
     )
 
     for ($index = 0; $index -lt $all.Count; $index++) {
-        $element = $all.Item($index)
-        try {
-            $items.Add([pscustomobject]@{
-                Name = [string]$element.Current.Name
-                ControlType = [string]$element.Current.ControlType.ProgrammaticName
-                IsEnabled = [bool]$element.Current.IsEnabled
-                AutomationId = [string]$element.Current.AutomationId
-            })
-        }
-        catch {
-            # Elements can disappear between the tree query and property reads.
-        }
+        Add-UiAutomationElement -Items $items -Element $all.Item($index)
     }
     return $items
 }
 
 function Wait-ForNamedElement {
     param(
-        [System.Windows.Automation.AutomationElement]$Root,
+        [IntPtr]$WindowHandle,
         [string]$Name,
         [int]$TimeoutMilliseconds = 10000
     )
 
     $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    $snapshot = @()
     do {
-        $snapshot = @(Get-UiAutomationSnapshot -Root $Root)
+        $snapshot = @(Get-UiAutomationSnapshot -WindowHandle $WindowHandle)
         $match = $snapshot | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
         if ($null -ne $match) {
             return $match
@@ -88,10 +104,18 @@ try {
         throw 'AccessibleUTM did not expose a top-level Windows window within the timeout.'
     }
 
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    $handle = [IntPtr]$process.MainWindowHandle
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
     if ($null -eq $root) {
         throw 'UI Automation could not attach to the AccessibleUTM top-level window.'
     }
+
+    # AccessKit activates its platform provider on demand. Focus plus an initial
+    # keyboard event guarantees a new egui frame after UIA has requested the tree.
+    [void][AccessibleUtmFocus]::SetForegroundWindow($handle)
+    Start-Sleep -Milliseconds 300
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    Start-Sleep -Milliseconds 500
 
     $required = @(
         'AccessibleUTM Windows',
@@ -109,21 +133,21 @@ try {
     )
 
     foreach ($name in $required) {
-        [void](Wait-ForNamedElement -Root $root -Name $name)
+        [void](Wait-ForNamedElement -WindowHandle $handle -Name $name)
     }
 
-    $before = @(Get-UiAutomationSnapshot -Root $root)
+    $before = @(Get-UiAutomationSnapshot -WindowHandle $handle)
     if ($before.Name -contains 'QEMU command printed to stdout.') {
         throw 'Unexpected precondition: F9 status was already present before keyboard injection.'
     }
 
-    [void][AccessibleUtmFocus]::SetForegroundWindow($process.MainWindowHandle)
+    [void][AccessibleUtmFocus]::SetForegroundWindow($handle)
     Start-Sleep -Milliseconds 300
     [System.Windows.Forms.SendKeys]::SendWait('{F9}')
 
-    [void](Wait-ForNamedElement -Root $root -Name 'QEMU command printed to stdout.' -TimeoutMilliseconds 5000)
+    [void](Wait-ForNamedElement -WindowHandle $handle -Name 'QEMU command printed to stdout.' -TimeoutMilliseconds 5000)
 
-    $snapshot = @(Get-UiAutomationSnapshot -Root $root)
+    $snapshot = @(Get-UiAutomationSnapshot -WindowHandle $handle)
     $snapshot |
         Sort-Object ControlType, Name -Unique |
         ConvertTo-Json -Depth 4 |
