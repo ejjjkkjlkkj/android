@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $projectRoot '..')).Path
 $manifest = Join-Path $projectRoot 'Cargo.toml'
+$lockfile = Join-Path $projectRoot 'Cargo.lock'
 $exe = Join-Path $projectRoot 'target\release\accessible-utm.exe'
 
 if (-not [Environment]::UserInteractive) {
@@ -16,6 +17,9 @@ if (-not [Environment]::UserInteractive) {
 }
 if ((Get-Process -Id $PID).SessionId -eq 0) {
     throw 'Session 0 is not valid for real UI Automation validation.'
+}
+if (-not (Test-Path -LiteralPath $lockfile)) {
+    throw "Committed Cargo lockfile not found: $lockfile"
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -27,12 +31,12 @@ New-Item -ItemType Directory -Path $output -Force | Out-Null
 
 if (-not $SkipBuild) {
     Write-Host '== RUST TESTS =='
-    cargo test --release --manifest-path $manifest
-    if ($LASTEXITCODE -ne 0) { throw "cargo test failed with exit code $LASTEXITCODE" }
+    cargo test --release --locked --manifest-path $manifest
+    if ($LASTEXITCODE -ne 0) { throw "cargo test --locked failed with exit code $LASTEXITCODE" }
 
     Write-Host '== RELEASE BUILD =='
-    cargo build --release --manifest-path $manifest
-    if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
+    cargo build --release --locked --manifest-path $manifest
+    if ($LASTEXITCODE -ne 0) { throw "cargo build --locked failed with exit code $LASTEXITCODE" }
 }
 
 if (-not (Test-Path -LiteralPath $exe)) {
@@ -64,6 +68,7 @@ $screenReaders = foreach ($definition in $screenReaderDefinitions) {
 
 $os = Get-CimInstance Win32_OperatingSystem
 $exeHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+$lockHash = (Get-FileHash -LiteralPath $lockfile -Algorithm SHA256).Hash.ToLowerInvariant()
 $gitCommit = (& git -C $repoRoot rev-parse HEAD 2>$null | Out-String).Trim()
 $rustVersion = (& rustc -V | Out-String).Trim()
 $cargoVersion = (& cargo -V | Out-String).Trim()
@@ -74,6 +79,7 @@ $report = [ordered]@{
     repository_commit = $gitCommit
     executable = $exe
     executable_sha256 = $exeHash
+    cargo_lock_sha256 = $lockHash
     session_id = (Get-Process -Id $PID).SessionId
     user_interactive = [Environment]::UserInteractive
     windows = [ordered]@{
@@ -85,6 +91,7 @@ $report = [ordered]@{
     rust = $rustVersion
     cargo = $cargoVersion
     automated = [ordered]@{
+        dependency_lock = 'PASS'
         rust_tests = if ($SkipBuild) { 'SKIPPED_BY_REQUEST' } else { 'PASS' }
         release_build = if ($SkipBuild) { 'SKIPPED_BY_REQUEST' } else { 'PASS' }
         windows_uia_tree = 'PASS'
@@ -109,7 +116,9 @@ AccessibleUTM interactive Windows evidence
 
 Automated UIA tree: PASS
 Automated F9 keyboard path: PASS
+Locked Rust dependencies: PASS
 Executable SHA-256: $exeHash
+Cargo.lock SHA-256: $lockHash
 Commit: $gitCommit
 
 IMPORTANT: NVDA, JAWS and Narrator process detection is evidence only. It does not count as a human screen-reader PASS.
@@ -122,6 +131,7 @@ Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $output '*') -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host 'ACCESSIBLE_UTM_INTERACTIVE_AUTOMATION = PASS'
+Write-Host 'ACCESSIBLE_UTM_CARGO_LOCK = VERIFIED'
 Write-Host 'ACCESSIBLE_UTM_SCREEN_READER_MANUAL_GATE = REQUIRED'
 Write-Host "EVIDENCE_DIRECTORY = $output"
 Write-Host "EVIDENCE_ZIP = $zipPath"
