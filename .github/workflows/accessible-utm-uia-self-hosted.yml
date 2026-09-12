@@ -38,15 +38,19 @@ jobs:
           cargo test --release --manifest-path accessible-utm/Cargo.toml
           cargo build --release --manifest-path accessible-utm/Cargo.toml
 
-      - name: Strict Windows UI Automation tree and keyboard test
+      - name: Strict interactive accessibility evidence gate
         shell: pwsh
         run: |
-          ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
+          $evidence = Join-Path $env:RUNNER_TEMP 'AccessibleUTM-Interactive-Evidence'
+          ./accessible-utm/tests/windows_interactive_gate.ps1 -SkipBuild -OutputDirectory $evidence
           Write-Host 'ACCESSIBLE_UTM_UIA_INTERACTIVE = VERIFIED_PASS'
+          Write-Host 'ACCESSIBLE_UTM_SCREEN_READER_HUMAN_GATE = REQUIRED'
 
-      - name: Upload UIA evidence
+      - name: Upload interactive accessibility evidence
         uses: actions/upload-artifact@v7.0.1
         with:
           name: AccessibleUTM-UIA-interactive-${{ github.sha }}
-          path: ${{ runner.temp }}/accessible-utm-uia-tree.json
+          path: |
+            ${{ runner.temp }}/AccessibleUTM-Interactive-Evidence/**
+            ${{ runner.temp }}/AccessibleUTM-Interactive-Evidence.zip
           if-no-files-found: error
