@@ -27,17 +27,19 @@ jobs:
           set -euo pipefail
           cat > "$RUNNER_TEMP/patch_live_test.py" <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('accessible-utm/src/main.rs')
           text = path.read_text(encoding='utf-8')
-          old = '''        assert!(
-              harness
-                  .query_by_label("QEMU command printed to stdout.")
-                  .is_some(),
-              "Updated status is missing from the AccessKit tree"
-          );'''
-          old = old.replace('              harness', '            harness').replace('                  .query', '                .query').replace('                  .is_some', '                .is_some').replace('              "Updated', '            "Updated').replace('          );', '        );')
-          new = '''        let status_node = harness.get_by_label("QEMU command printed to stdout.");
+          pattern = re.compile(
+              r'''        assert!\(\n'''
+              r'''\s*harness\n'''
+              r'''\s*\.query_by_label\("QEMU command printed to stdout\."\)\n'''
+              r'''\s*\.is_some\(\),\n'''
+              r'''\s*"Updated status is missing from the AccessKit tree"\n'''
+              r'''\s*\);'''
+          )
+          replacement = '''        let status_node = harness.get_by_label("QEMU command printed to stdout.");
           assert_eq!(
               status_node.accesskit_node().live(),
               Some(egui::accesskit::Live::Polite),
@@ -47,10 +49,11 @@ jobs:
               status_node.accesskit_node().is_live_atomic(),
               "Updated status live region must be atomic"
           );'''
-          new = new.replace('          assert_eq!', '        assert_eq!').replace('          assert!(', '        assert!(').replace('              status_node', '            status_node').replace('              Some', '            Some').replace('              "Updated', '            "Updated').replace('          );', '        );')
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected one AccessKit status assertion, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          replacement = replacement.replace('          assert_eq!', '        assert_eq!').replace('          assert!(', '        assert!(').replace('              status_node', '            status_node').replace('              Some', '            Some').replace('              "Updated', '            "Updated').replace('          );', '        );')
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one AccessKit status assertion, replaced {count}')
+          path.write_text(text, encoding='utf-8')
           PY
           python "$RUNNER_TEMP/patch_live_test.py"
 
@@ -58,7 +61,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked --manifest-path accessible-utm/Cargo.toml accesskit_semantics_expose_primary_controls_and_actions
+          output="$RUNNER_TEMP/live-semantic-test.log"
+          cargo test --locked --manifest-path accessible-utm/Cargo.toml accesskit_semantics_expose_primary_controls_and_actions 2>&1 | tee "$output"
+          grep -Eq 'test tests::accesskit_semantics_expose_primary_controls_and_actions \.\.\. ok' "$output"
+          grep -Eq 'test result: ok\. 1 passed; 0 failed' "$output"
+          echo 'ACCESSIBLE_UTM_LIVE_SEMANTICS = PASS'
 
       - name: Commit source-only patch
         shell: bash
