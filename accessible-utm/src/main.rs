@@ -622,7 +622,13 @@ impl AccessibleUtmApp {
 
         ui.add_space(16.0);
         ui.heading("Status");
-        ui.label(&self.status);
+        let status_response = ui.label(&self.status);
+        status_response
+            .ctx
+            .accesskit_node_builder(status_response.id, |node| {
+                node.set_live(egui::accesskit::Live::Polite);
+                node.set_live_atomic();
+            });
         ui.add_space(12.0);
         ui.heading("Keyboard and screen-reader navigation");
         ui.label("All primary controls are keyboard reachable. Use Tab and Shift+Tab between controls, arrow keys for radio buttons/sliders, Enter or Space to activate actions, F5 through F9 for VM actions and diagnostics, Ctrl+S to save, and Ctrl+O to load. Windows UI Automation exposure is provided through the eframe/egui accessibility stack and is continuously smoke-tested on Windows runners; NVDA, JAWS and Narrator remain required for user-level screen-reader validation.");

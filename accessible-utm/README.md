@@ -7,7 +7,7 @@ AccessibleUTM is the accessibility-first Windows frontend for the Accessible Vir
 - Native Windows UI Automation exposure is provided by `eframe`/`egui` through AccessKit.
 - Every editable VM field is explicitly associated with a visible label.
 - Primary VM actions are reachable with Tab/Shift+Tab and expose keyboard shortcuts.
-- Status changes are rendered as readable text for screen readers.
+- Status changes are exposed as a polite, atomic AccessKit live region so screen readers can announce VM state and error updates without moving focus.
 - Hosted CI verifies the accessibility source contract and attempts a non-blocking UIA probe.
 - Strict UIA tree and keyboard validation runs only in a real interactive Windows session; a GitHub-hosted desktop probe is never presented as equivalent evidence.
 
