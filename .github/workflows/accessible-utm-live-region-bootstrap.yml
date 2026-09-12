@@ -44,14 +44,6 @@ jobs:
               raise SystemExit(f'Expected exactly one status label block, found {text.count(old)}')
           main.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          workflow = Path('.github/workflows/accessible-utm-windows.yml')
-          text = workflow.read_text(encoding='utf-8')
-          old = "            'Load configuration (Ctrl+O)'\n"
-          new = "            'Load configuration (Ctrl+O)',\n            'set_live(egui::accesskit::Live::Polite)',\n            'set_live_atomic'\n"
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected exactly one accessibility contract anchor, found {text.count(old)}')
-          workflow.write_text(text.replace(old, new, 1), encoding='utf-8')
-
           readme = Path('accessible-utm/README.md')
           text = readme.read_text(encoding='utf-8')
           old = '- Status changes are rendered as readable text for screen readers.'
@@ -73,7 +65,6 @@ jobs:
           mapfile -t changed < <(git diff --name-only | sort)
           printf 'Changed files:\n%s\n' "${changed[*]}"
           expected=(
-            '.github/workflows/accessible-utm-windows.yml'
             'accessible-utm/README.md'
             'accessible-utm/src/main.rs'
           )
