@@ -1,0 +1,44 @@
+name: AccessibleUTM Lockfile Bootstrap
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - '.github/workflows/accessible-utm-lock-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generate-lockfile:
+    name: Generate and commit Cargo.lock once
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Generate Cargo lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile --manifest-path accessible-utm/Cargo.toml
+          test -s accessible-utm/Cargo.lock
+
+      - name: Commit Cargo lockfile when missing or changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add accessible-utm/Cargo.lock
+          if git diff --cached --quiet; then
+            echo 'ACCESSIBLE_UTM_CARGO_LOCK = ALREADY_CURRENT'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Lock AccessibleUTM Rust dependencies'
+          git push origin HEAD:accessible-virtual-suite
+          echo 'ACCESSIBLE_UTM_CARGO_LOCK = COMMITTED'
