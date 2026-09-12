@@ -683,6 +683,11 @@ fn main() -> eframe::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::accesskit::Role;
+    use egui_kittest::{
+        Harness,
+        kittest::{NodeT, Queryable},
+    };
 
     #[test]
     fn cli_names_round_trip() {
@@ -703,5 +708,58 @@ mod tests {
         let path = PathBuf::from("definitely-does-not-exist-accessible-utm-test.json");
         assert!(load_cli_config(&mut app, &path).is_ok());
         assert_eq!(app.config_path, path);
+    }
+
+    #[test]
+    fn accesskit_semantics_expose_primary_controls_and_actions() {
+        let app = AccessibleUtmApp::default();
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(1800.0, 1600.0))
+            .build_ui_state(|ui, app| app.render(ui), app);
+
+        for label in [
+            "AccessibleUTM Windows",
+            "VM name",
+            "QEMU executable",
+            "Boot ISO path",
+            "Virtual disk path",
+            "Firmware path",
+            "Memory",
+            "Processors",
+            "QMP local port",
+        ] {
+            assert!(
+                harness.query_by_label(label).is_some(),
+                "AccessKit label missing: {label}"
+            );
+        }
+
+        for label in [
+            "Start virtual machine (F5)",
+            "Pause virtual machine (F6)",
+            "Resume virtual machine (F7)",
+            "Request graceful shutdown (F8)",
+            "Print QEMU command (F9)",
+            "Save configuration (Ctrl+S)",
+            "Load configuration (Ctrl+O)",
+        ] {
+            assert!(
+                harness.query_by_role_and_label(Role::Button, label).is_some(),
+                "AccessKit button missing: {label}"
+            );
+        }
+
+        harness
+            .get_by_role_and_label(Role::Button, "Print QEMU command (F9)")
+            .click();
+        harness.run();
+
+        assert_eq!(harness.state().status, "QEMU command printed to stdout.");
+        assert!(
+            harness
+                .query_by_label("QEMU command printed to stdout.")
+                .is_some(),
+            "Updated status is missing from the AccessKit tree"
+        );
     }
 }
