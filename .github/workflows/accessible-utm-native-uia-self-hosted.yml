@@ -1,0 +1,40 @@
+name: AccessibleUTM Native UIA Self-Hosted
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-uia:
+    name: Native Windows UIA interactive validation
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Show environment
+        shell: pwsh
+        run: |
+          rustc -vV
+          cargo -V
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber | Format-List
+
+      - name: Build and test AccessibleUTM
+        shell: pwsh
+        run: |
+          cargo test --release --manifest-path accessible-utm/Cargo.toml
+          cargo build --release --manifest-path accessible-utm/Cargo.toml
+
+      - name: Run strict native Windows UI Automation smoke
+        shell: pwsh
+        run: |
+          ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
+
+      - name: Upload native UIA evidence
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleUTM-native-uia-${{ github.sha }}
+          path: ${{ runner.temp }}/accessible-utm-uia-tree.json
+          if-no-files-found: error
