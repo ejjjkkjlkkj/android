@@ -8,7 +8,8 @@ AccessibleUTM is the accessibility-first Windows frontend for the Accessible Vir
 - Every editable VM field is explicitly associated with a visible label.
 - Primary VM actions are reachable with Tab/Shift+Tab and expose keyboard shortcuts.
 - Status changes are rendered as readable text for screen readers.
-- CI includes a Windows UI Automation smoke test in addition to Rust tests and QEMU command-contract tests.
+- Hosted CI verifies the accessibility source contract and attempts a non-blocking UIA probe.
+- Strict UIA tree and keyboard validation runs only in a real interactive Windows session; a GitHub-hosted desktop probe is never presented as equivalent evidence.
 
 ### Keyboard shortcuts
 
@@ -80,6 +81,28 @@ The Android profile preserves these fixed devices because Android early boot dep
 
 ## Validation levels
 
-`cargo test` validates configuration serialization and QEMU argument generation. The GitHub Actions Windows job additionally builds the release binary, validates x86_64/ARM64/RISC-V command generation, starts the real GUI, inspects its Windows UI Automation tree, injects the F9 keyboard shortcut, and packages a versioned ZIP with SHA-256 metadata.
+### 1. Automated Rust and VM contract
 
-NVDA, JAWS and Narrator human-in-the-loop validation on a real Windows desktop remains a separate release gate; CI UI Automation is not presented as a substitute for those screen-reader passes.
+`cargo test` validates configuration serialization and QEMU argument generation. Hosted GitHub Actions additionally builds the release binary and verifies the AccessibleAndroid x86_64 contract plus ARM64 and RISC-V command generation.
+
+### 2. Hosted Windows accessibility probe
+
+The normal Windows workflow verifies that labels, named actions and keyboard shortcuts are present in the source contract. It also attempts the real UIA smoke test. Because GitHub-hosted Windows runners do not guarantee a usable interactive desktop/UIA provider, failure of that hosted runtime probe is classified as `UNVERIFIED`, not as a product accessibility PASS or FAIL.
+
+The deterministic Windows ZIP is still built and verified byte-for-byte independently of that hosted UIA limitation.
+
+### 3. Strict interactive UIA gate
+
+For an actual signed-in Windows desktop, run from the repository root:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\accessible-utm\tests\windows_interactive_gate.ps1
+```
+
+This performs the release Rust tests/build, launches the real GUI, inspects the Windows UI Automation tree, exercises the F9 keyboard path, records environment and executable SHA-256 metadata, and creates an `AccessibleUTM-Evidence-*.zip` package on the desktop.
+
+The same strict smoke test is available through the `AccessibleUTM UIA Interactive` GitHub workflow when a Windows x64 self-hosted runner is launched inside a signed-in interactive session rather than Session 0.
+
+### 4. Screen-reader release gate
+
+NVDA, JAWS and Narrator human-in-the-loop validation remains mandatory. Process detection by the evidence script only records which screen readers were running; it never counts as user validation. The release gate must confirm keyboard traversal, editable-field announcements, action names/shortcuts, status changes, focus behavior and a real QEMU guest workflow with each required screen reader.
