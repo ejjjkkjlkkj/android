@@ -8,10 +8,11 @@ use serde_json::{Value, json};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-const HELP: &str = "AccessibleUTM Windows\n\nOptions:\n  --profile <name>       accessible-android|linux|windows|generic\n  --arch <name>          x86_64|aarch64|riscv64\n  --name <name>          Virtual machine name\n  --iso <path>           Bootable ISO image\n  --disk <path>          RAW/QCOW2/VDI/VMDK/VHD/VHDX virtual disk\n  --firmware <path>      Optional firmware/UEFI image\n  --qemu <path>          QEMU system executable\n  --memory <MiB>         Guest memory, 1024..65536\n  --cpus <count>         Guest virtual CPUs, 1..32\n  --qmp-port <port>      Local QMP control port, default 4444\n  --autostart            Start VM immediately after opening GUI\n  --print-qemu-command   Print generated QEMU command and exit\n  --help, -h             Show this help and exit\n  --version              Show version and exit\n\nAccessibleAndroid x86_64 contract:\n  OS disk: virtio-blk-pci at PCI 0000:00:06.0\n  RNG:     virtio-rng-pci at PCI 0000:00:07.0\n  Network: virtio-net-pci at PCI 0000:00:08.0\n";
+const HELP: &str = "AccessibleUTM Windows\n\nOptions:\n  --profile <name>       accessible-android|linux|windows|generic\n  --arch <name>          x86_64|aarch64|riscv64\n  --name <name>          Virtual machine name\n  --iso <path>           Bootable ISO image\n  --disk <path>          RAW/QCOW2/VDI/VMDK/VHD/VHDX virtual disk\n  --firmware <path>      Optional firmware/UEFI image\n  --qemu <path>          QEMU system executable\n  --memory <MiB>         Guest memory, 1024..65536\n  --cpus <count>         Guest virtual CPUs, 1..32\n  --qmp-port <port>      Local QMP control port, default 4444\n  --config <path>        VM configuration JSON path for load/save\n  --autostart            Start VM immediately after opening GUI\n  --print-qemu-command   Print generated QEMU command and exit\n  --help, -h             Show this help and exit\n  --version              Show version and exit\n\nKeyboard:\n  F5                     Start virtual machine\n  F6                     Pause virtual machine\n  F7                     Resume virtual machine\n  F8                     Request graceful shutdown\n  F9                     Print QEMU command\n  Ctrl+S                 Save configuration\n  Ctrl+O                 Load configuration\n\nAccessibleAndroid x86_64 contract:\n  OS disk: virtio-blk-pci at PCI 0000:00:06.0\n  RNG:     virtio-rng-pci at PCI 0000:00:07.0\n  Network: virtio-net-pci at PCI 0000:00:08.0\n";
 
 enum Startup {
     Gui(AccessibleUtmApp),
@@ -21,6 +22,7 @@ enum Startup {
 
 struct AccessibleUtmApp {
     config: VmConfig,
+    config_path: PathBuf,
     status: String,
     child: Option<Child>,
     autostart_pending: bool,
@@ -32,6 +34,7 @@ impl Default for AccessibleUtmApp {
         config.qemu_binary = default_qemu_binary(config.architecture);
         Self {
             config,
+            config_path: PathBuf::from("AccessibleUTM.json"),
             status: "Stopped. Configure a virtual machine, then choose Start virtual machine."
                 .to_owned(),
             child: None,
@@ -48,6 +51,14 @@ fn next_value(args: &mut impl Iterator<Item = String>, option: &str) -> Option<S
             None
         }
     }
+}
+
+fn load_cli_config(app: &mut AccessibleUtmApp, path: &Path) -> Result<(), String> {
+    app.config_path = path.to_path_buf();
+    if path.exists() {
+        app.config = VmConfig::load(path)?;
+    }
+    Ok(())
 }
 
 fn app_from_args() -> Startup {
@@ -149,6 +160,17 @@ fn app_from_args() -> Startup {
                         return Startup::Exit;
                     }
                 }
+            }
+            "--config" => {
+                let Some(value) = next_value(&mut args, "--config") else {
+                    return Startup::Exit;
+                };
+                let path = PathBuf::from(value);
+                if let Err(error) = load_cli_config(&mut app, &path) {
+                    eprintln!("ERROR: {error}");
+                    return Startup::Exit;
+                }
+                qemu_overridden = !app.config.qemu_binary.trim().is_empty();
             }
             "--autostart" => app.autostart_pending = true,
             "--print-qemu-command" => print_command = true,
@@ -299,14 +321,18 @@ impl AccessibleUtmApp {
         }
         writeln!(writer, "{}", json!({"execute": "qmp_capabilities"}))
             .map_err(|error| format!("Cannot negotiate QMP capabilities: {error}"))?;
-        writer.flush().map_err(|error| format!("Cannot flush QMP request: {error}"))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Cannot flush QMP request: {error}"))?;
         let response = read_qmp_response(&mut reader)?;
         if let Some(error) = response.get("error") {
             return Err(format!("QMP capability negotiation failed: {error}"));
         }
         writeln!(writer, "{}", json!({"execute": command}))
             .map_err(|error| format!("Cannot send QMP command {command}: {error}"))?;
-        writer.flush().map_err(|error| format!("Cannot flush QMP command: {error}"))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Cannot flush QMP command: {error}"))?;
         let response = read_qmp_response(&mut reader)?;
         if let Some(error) = response.get("error") {
             return Err(format!("QMP command {command} failed: {error}"));
@@ -332,6 +358,92 @@ impl AccessibleUtmApp {
                 self.status = format!("Virtual machine QMP status: {state}.");
             }
             Err(error) => self.status = error,
+        }
+    }
+
+    fn print_qemu_command(&mut self) {
+        match printable_command(&self.config) {
+            Ok(command) => {
+                println!("{command}");
+                self.status = "QEMU command printed to stdout.".to_owned();
+            }
+            Err(error) => self.status = format!("Cannot generate QEMU command: {error}"),
+        }
+    }
+
+    fn save_configuration(&mut self) {
+        match self.config.save(&self.config_path) {
+            Ok(()) => {
+                self.status = format!(
+                    "Configuration saved to {}.",
+                    self.config_path.display()
+                )
+            }
+            Err(error) => self.status = error,
+        }
+    }
+
+    fn load_configuration(&mut self) {
+        match VmConfig::load(&self.config_path) {
+            Ok(mut config) => {
+                config.normalize();
+                if config.qemu_binary.trim().is_empty() {
+                    config.qemu_binary = default_qemu_binary(config.architecture);
+                }
+                self.config = config;
+                self.status = format!(
+                    "Configuration loaded from {}.",
+                    self.config_path.display()
+                );
+            }
+            Err(error) => self.status = error,
+        }
+    }
+
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let (
+            start,
+            pause,
+            resume,
+            graceful_shutdown,
+            print_command,
+            save_configuration,
+            load_configuration,
+        ) = ctx.input(|input| {
+            (
+                input.key_pressed(egui::Key::F5),
+                input.key_pressed(egui::Key::F6),
+                input.key_pressed(egui::Key::F7),
+                input.key_pressed(egui::Key::F8),
+                input.key_pressed(egui::Key::F9),
+                input.modifiers.ctrl && input.key_pressed(egui::Key::S),
+                input.modifiers.ctrl && input.key_pressed(egui::Key::O),
+            )
+        });
+
+        if start {
+            self.start_vm();
+        }
+        if pause {
+            self.run_qmp_action("stop", "Virtual machine paused through QMP.");
+        }
+        if resume {
+            self.run_qmp_action("cont", "Virtual machine resumed through QMP.");
+        }
+        if graceful_shutdown {
+            self.run_qmp_action(
+                "system_powerdown",
+                "Graceful guest shutdown requested through QMP.",
+            );
+        }
+        if print_command {
+            self.print_qemu_command();
+        }
+        if save_configuration {
+            self.save_configuration();
+        }
+        if load_configuration {
+            self.load_configuration();
         }
     }
 
@@ -381,7 +493,8 @@ impl AccessibleUtmApp {
             .spacing([16.0, 10.0])
             .show(ui, |ui| {
                 let label = ui.label("VM name");
-                ui.text_edit_singleline(&mut self.config.name).labelled_by(label.id);
+                ui.text_edit_singleline(&mut self.config.name)
+                    .labelled_by(label.id);
                 ui.end_row();
 
                 let label = ui.label("QEMU executable");
@@ -439,35 +552,80 @@ impl AccessibleUtmApp {
         ui.heading("Virtual machine controls");
         ui.horizontal_wrapped(|ui| {
             let running = self.child.is_some();
-            if ui.add_enabled(!running, egui::Button::new("Start virtual machine")).clicked() {
+            if ui
+                .add_enabled(!running, egui::Button::new("Start virtual machine (F5)"))
+                .clicked()
+            {
                 self.start_vm();
             }
-            if ui.add_enabled(running, egui::Button::new("Pause virtual machine")).clicked() {
+            if ui
+                .add_enabled(running, egui::Button::new("Pause virtual machine (F6)"))
+                .clicked()
+            {
                 self.run_qmp_action("stop", "Virtual machine paused through QMP.");
             }
-            if ui.add_enabled(running, egui::Button::new("Resume virtual machine")).clicked() {
+            if ui
+                .add_enabled(running, egui::Button::new("Resume virtual machine (F7)"))
+                .clicked()
+            {
                 self.run_qmp_action("cont", "Virtual machine resumed through QMP.");
             }
-            if ui.add_enabled(running, egui::Button::new("Reset virtual machine")).clicked() {
+            if ui
+                .add_enabled(running, egui::Button::new("Reset virtual machine"))
+                .clicked()
+            {
                 self.run_qmp_action("system_reset", "Virtual machine reset requested through QMP.");
             }
-            if ui.add_enabled(running, egui::Button::new("Request graceful shutdown")).clicked() {
-                self.run_qmp_action("system_powerdown", "Graceful guest shutdown requested through QMP.");
+            if ui
+                .add_enabled(
+                    running,
+                    egui::Button::new("Request graceful shutdown (F8)"),
+                )
+                .clicked()
+            {
+                self.run_qmp_action(
+                    "system_powerdown",
+                    "Graceful guest shutdown requested through QMP.",
+                );
             }
-            if ui.add_enabled(running, egui::Button::new("Force stop virtual machine")).clicked() {
+            if ui
+                .add_enabled(running, egui::Button::new("Force stop virtual machine"))
+                .clicked()
+            {
                 self.force_stop_vm();
             }
-            if ui.add_enabled(running, egui::Button::new("Query virtual machine status")).clicked() {
+            if ui
+                .add_enabled(running, egui::Button::new("Query virtual machine status"))
+                .clicked()
+            {
                 self.query_qmp_status();
             }
         });
+
+        ui.add_space(12.0);
+        ui.heading("Configuration and diagnostics");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Print QEMU command (F9)").clicked() {
+                self.print_qemu_command();
+            }
+            if ui.button("Save configuration (Ctrl+S)").clicked() {
+                self.save_configuration();
+            }
+            if ui.button("Load configuration (Ctrl+O)").clicked() {
+                self.load_configuration();
+            }
+        });
+        ui.label(format!(
+            "Configuration file: {}",
+            self.config_path.display()
+        ));
 
         ui.add_space(16.0);
         ui.heading("Status");
         ui.label(&self.status);
         ui.add_space(12.0);
         ui.heading("Keyboard and screen-reader navigation");
-        ui.label("All primary controls are keyboard reachable. Use Tab and Shift+Tab between controls, arrow keys for radio buttons/sliders, and Enter or Space to activate actions. Windows UI Automation exposure is provided through the eframe/egui accessibility stack and must be validated with NVDA, JAWS and Narrator on the Windows 11 26H2 runner.");
+        ui.label("All primary controls are keyboard reachable. Use Tab and Shift+Tab between controls, arrow keys for radio buttons/sliders, Enter or Space to activate actions, F5 through F9 for VM actions and diagnostics, Ctrl+S to save, and Ctrl+O to load. Windows UI Automation exposure is provided through the eframe/egui accessibility stack and is continuously smoke-tested on Windows runners; NVDA, JAWS and Narrator remain required for user-level screen-reader validation.");
     }
 }
 
@@ -481,8 +639,9 @@ impl Drop for AccessibleUtmApp {
 }
 
 impl eframe::App for AccessibleUtmApp {
-    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.refresh_process_state();
+        self.handle_shortcuts(ctx);
         if self.autostart_pending {
             self.autostart_pending = false;
             self.start_vm();
@@ -525,10 +684,21 @@ mod tests {
     #[test]
     fn cli_names_round_trip() {
         for architecture in Architecture::ALL {
-            assert_eq!(Architecture::from_cli(architecture.cli_name()), Some(architecture));
+            assert_eq!(
+                Architecture::from_cli(architecture.cli_name()),
+                Some(architecture)
+            );
         }
         for profile in GuestProfile::ALL {
             assert_eq!(GuestProfile::from_cli(profile.cli_name()), Some(profile));
         }
+    }
+
+    #[test]
+    fn missing_config_path_is_accepted_for_first_save() {
+        let mut app = AccessibleUtmApp::default();
+        let path = PathBuf::from("definitely-does-not-exist-accessible-utm-test.json");
+        assert!(load_cli_config(&mut app, &path).is_ok());
+        assert_eq!(app.config_path, path);
     }
 }
