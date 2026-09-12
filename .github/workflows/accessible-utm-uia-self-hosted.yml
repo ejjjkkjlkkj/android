@@ -30,13 +30,23 @@ jobs:
           }
           Write-Host 'ACCESSIBLE_UTM_INTERACTIVE_DESKTOP = PASS'
 
+      - name: Verify locked Rust dependency graph
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath 'accessible-utm/Cargo.lock')) {
+            throw 'accessible-utm/Cargo.lock must be committed.'
+          }
+          cargo metadata --locked --no-deps --manifest-path accessible-utm/Cargo.toml --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "cargo metadata --locked failed: $LASTEXITCODE" }
+          Write-Host 'ACCESSIBLE_UTM_CARGO_LOCK = VERIFIED'
+
       - name: Build AccessibleUTM
         shell: pwsh
         run: |
           rustc -vV
           cargo -V
-          cargo test --release --manifest-path accessible-utm/Cargo.toml
-          cargo build --release --manifest-path accessible-utm/Cargo.toml
+          cargo test --release --locked --manifest-path accessible-utm/Cargo.toml
+          cargo build --release --locked --manifest-path accessible-utm/Cargo.toml
 
       - name: Strict interactive accessibility evidence gate
         shell: pwsh
