@@ -156,22 +156,48 @@ impl VmConfig {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent).map_err(|error| {
-                    format!("Cannot create VM configuration directory '{}': {error}", parent.display())
+                    format!(
+                        "Cannot create VM configuration directory '{}': {error}",
+                        parent.display()
+                    )
                 })?;
             }
         }
+
         let json = self.to_json_pretty()?;
         let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, json)
-            .map_err(|error| format!("Cannot write temporary VM configuration '{}': {error}", temporary.display()))?;
-        fs::rename(&temporary, path)
-            .map_err(|error| format!("Cannot commit VM configuration '{}': {error}", path.display()))?;
+        fs::write(&temporary, json).map_err(|error| {
+            format!(
+                "Cannot write temporary VM configuration '{}': {error}",
+                temporary.display()
+            )
+        })?;
+
+        if path.exists() {
+            fs::remove_file(path).map_err(|error| {
+                format!(
+                    "Cannot replace existing VM configuration '{}': {error}",
+                    path.display()
+                )
+            })?;
+        }
+
+        fs::rename(&temporary, path).map_err(|error| {
+            format!(
+                "Cannot commit VM configuration '{}': {error}",
+                path.display()
+            )
+        })?;
         Ok(())
     }
 
     pub fn load(path: &Path) -> Result<Self, String> {
-        let text = fs::read_to_string(path)
-            .map_err(|error| format!("Cannot read VM configuration '{}': {error}", path.display()))?;
+        let text = fs::read_to_string(path).map_err(|error| {
+            format!(
+                "Cannot read VM configuration '{}': {error}",
+                path.display()
+            )
+        })?;
         Self::from_json(&text)
     }
 }
@@ -179,6 +205,7 @@ impl VmConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn vm_configuration_json_round_trip_preserves_android_profile() {
@@ -221,5 +248,29 @@ mod tests {
             "name": "Future VM"
         }"#;
         assert!(VmConfig::from_json(json).is_err());
+    }
+
+    #[test]
+    fn save_can_replace_existing_configuration() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "accessible-utm-config-{}-{nonce}.json",
+            std::process::id()
+        ));
+
+        let mut first = VmConfig::default();
+        first.name = "First".to_owned();
+        first.save(&path).unwrap();
+
+        let mut second = VmConfig::default();
+        second.name = "Second".to_owned();
+        second.save(&path).unwrap();
+
+        let restored = VmConfig::load(&path).unwrap();
+        assert_eq!(restored.name, "Second");
+        let _ = fs::remove_file(path);
     }
 }
