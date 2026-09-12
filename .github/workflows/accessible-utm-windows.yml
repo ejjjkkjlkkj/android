@@ -98,14 +98,16 @@ jobs:
           foreach ($needle in $requiredAndroid) {
             if ($android -notlike "*$needle*") { throw "Android contract missing '$needle'`n$android" }
           }
-          $forbiddenAndroid = @(
-            '-vga virtio',
-            '-audio ',
+
+          $forbiddenAndroidPatterns = @(
+            '(?<!\S)-vga\s+virtio(?:\s|$)',
+            '(?<!\S)-audio(?:\s|$)',
             'driver=dsound,model=virtio'
           )
-          foreach ($needle in $forbiddenAndroid) {
-            if ($android -like "*$needle*") { throw "Deprecated Android QEMU syntax still present '$needle'`n$android" }
+          foreach ($pattern in $forbiddenAndroidPatterns) {
+            if ($android -match $pattern) { throw "Deprecated Android QEMU syntax matched '$pattern'`n$android" }
           }
+
           Write-Host 'ACCESSIBLE_UTM_ANDROID_VM_CONTRACT = PASS'
           Write-Host $android
 
@@ -127,9 +129,41 @@ jobs:
           Write-Host $arm
           Write-Host $riscv
 
-      - name: Upload Windows executable
+      - name: Validate Windows UI Automation tree and keyboard path
+        shell: pwsh
+        run: |
+          ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
+
+      - name: Build and verify deterministic Windows ZIP
+        shell: pwsh
+        run: |
+          $exe = 'accessible-utm/target/release/accessible-utm.exe'
+          $env:SOURCE_DATE_EPOCH = (& git show -s --format=%ct HEAD | Out-String).Trim()
+          if ($env:SOURCE_DATE_EPOCH -notmatch '^\d+$') {
+            throw "Invalid SOURCE_DATE_EPOCH: $env:SOURCE_DATE_EPOCH"
+          }
+
+          ./accessible-utm/scripts/package-windows.ps1 -Executable $exe
+          $zip = Get-ChildItem 'accessible-utm/dist/AccessibleUTM-*-windows-x64.zip' | Select-Object -First 1
+          if ($null -eq $zip) { throw 'AccessibleUTM ZIP was not generated.' }
+          $hash1 = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
+
+          ./accessible-utm/scripts/package-windows.ps1 -Executable $exe
+          $zip = Get-ChildItem 'accessible-utm/dist/AccessibleUTM-*-windows-x64.zip' | Select-Object -First 1
+          $hash2 = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
+
+          if ($hash1 -ne $hash2) {
+            throw "AccessibleUTM package is not reproducible: $hash1 != $hash2"
+          }
+          Write-Host 'ACCESSIBLE_UTM_ZIP_REPRODUCIBILITY = PASS'
+          Write-Host "ACCESSIBLE_UTM_ZIP_SHA256 = $($hash2.ToLowerInvariant())"
+
+      - name: Upload Windows package and accessibility evidence
         uses: actions/upload-artifact@v7.0.1
         with:
           name: AccessibleUTM-windows-x64
-          path: accessible-utm/target/release/accessible-utm.exe
+          path: |
+            accessible-utm/dist/*.zip
+            accessible-utm/dist/*/SHA256SUMS.txt
+            ${{ runner.temp }}/accessible-utm-uia-tree.json
           if-no-files-found: error
