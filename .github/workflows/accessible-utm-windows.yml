@@ -165,7 +165,9 @@ jobs:
             'Request graceful shutdown (F8)',
             'Print QEMU command (F9)',
             'Save configuration (Ctrl+S)',
-            'Load configuration (Ctrl+O)'
+            'Load configuration (Ctrl+O)',
+            'set_live(egui::accesskit::Live::Polite)',
+            'set_live_atomic'
           )
           foreach ($needle in $required) {
             if ($source -notlike "*$needle*") { throw "Accessibility source contract missing '$needle'" }
