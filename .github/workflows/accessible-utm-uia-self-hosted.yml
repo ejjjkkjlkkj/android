@@ -1,0 +1,52 @@
+name: AccessibleUTM UIA Interactive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uia-interactive:
+    name: Strict UIA and keyboard validation on interactive Windows
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify interactive desktop
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          $session = (Get-Process -Id $PID).SessionId
+          Write-Host "SESSION_ID = $session"
+          Write-Host "USER_INTERACTIVE = $([Environment]::UserInteractive)"
+          if (-not [Environment]::UserInteractive) {
+            throw 'Strict UIA validation requires an interactive Windows desktop session.'
+          }
+          if ($session -eq 0) {
+            throw 'Runner is in Windows Session 0. Launch the self-hosted runner inside the signed-in desktop session.'
+          }
+          Write-Host 'ACCESSIBLE_UTM_INTERACTIVE_DESKTOP = PASS'
+
+      - name: Build AccessibleUTM
+        shell: pwsh
+        run: |
+          rustc -vV
+          cargo -V
+          cargo test --release --manifest-path accessible-utm/Cargo.toml
+          cargo build --release --manifest-path accessible-utm/Cargo.toml
+
+      - name: Strict Windows UI Automation tree and keyboard test
+        shell: pwsh
+        run: |
+          ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
+          Write-Host 'ACCESSIBLE_UTM_UIA_INTERACTIVE = VERIFIED_PASS'
+
+      - name: Upload UIA evidence
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleUTM-UIA-interactive-${{ github.sha }}
+          path: ${{ runner.temp }}/accessible-utm-uia-tree.json
+          if-no-files-found: error
