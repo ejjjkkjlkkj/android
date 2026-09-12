@@ -671,7 +671,10 @@ fn main() -> eframe::Result<()> {
             eframe::run_native(
                 "AccessibleUTM Windows",
                 options,
-                Box::new(move |_creation_context| Ok(Box::new(app))),
+                Box::new(move |creation_context| {
+                    creation_context.egui_ctx.enable_accesskit();
+                    Ok(Box::new(app))
+                }),
             )
         }
     }
