@@ -1,14 +1,35 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Executable
+    [string]$Executable,
+
+    [string]$EvidenceDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $exePath = (Resolve-Path -LiteralPath $Executable).Path
-$configPath = Join-Path $env:RUNNER_TEMP 'accessible-utm-uia-smoke.json'
+
+if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
+    $tempRoot = if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+        $env:RUNNER_TEMP
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:TEMP)) {
+        $env:TEMP
+    }
+    else {
+        [System.IO.Path]::GetTempPath()
+    }
+}
+else {
+    $tempRoot = [System.IO.Path]::GetFullPath($EvidenceDirectory)
+}
+
+New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+$configPath = Join-Path $tempRoot 'accessible-utm-uia-smoke.json'
+$treePath = Join-Path $tempRoot 'accessible-utm-uia-tree.json'
 Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $treePath -Force -ErrorAction SilentlyContinue
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -151,11 +172,12 @@ try {
     $snapshot |
         Sort-Object ControlType, Name -Unique |
         ConvertTo-Json -Depth 4 |
-        Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'accessible-utm-uia-tree.json') -Encoding UTF8
+        Set-Content -LiteralPath $treePath -Encoding UTF8
 
     Write-Host 'ACCESSIBLE_UTM_UIA_TREE = PASS'
     Write-Host 'ACCESSIBLE_UTM_KEYBOARD_F9 = PASS'
     Write-Host "ACCESSIBLE_UTM_UIA_ELEMENT_COUNT = $($snapshot.Count)"
+    Write-Host "ACCESSIBLE_UTM_UIA_EVIDENCE = $treePath"
 }
 finally {
     if (-not $process.HasExited) {
