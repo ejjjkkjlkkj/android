@@ -31,11 +31,15 @@ Force stop and reset intentionally require explicit button activation to reduce 
 - QEMU available on `PATH` or installed under `C:\Program Files\qemu`.
 - WHPX / Windows Hypervisor Platform is preferred for x86_64 guests; QEMU falls back to TCG when WHPX is unavailable.
 
+## Reproducible Rust dependencies
+
+`accessible-utm/Cargo.lock` is committed. CI, self-hosted validation and the local accessibility gate all use Cargo `--locked`; a stale or missing lockfile is a hard failure instead of silently resolving a different dependency graph.
+
 ## Build
 
 ```powershell
-cargo test --release --manifest-path accessible-utm/Cargo.toml
-cargo build --release --manifest-path accessible-utm/Cargo.toml
+cargo test --release --locked --manifest-path accessible-utm/Cargo.toml
+cargo build --release --locked --manifest-path accessible-utm/Cargo.toml
 ```
 
 The executable is written to `accessible-utm\target\release\accessible-utm.exe`.
@@ -83,7 +87,7 @@ The Android profile preserves these fixed devices because Android early boot dep
 
 ### 1. Automated Rust and VM contract
 
-`cargo test` validates configuration serialization and QEMU argument generation. Hosted GitHub Actions additionally builds the release binary and verifies the AccessibleAndroid x86_64 contract plus ARM64 and RISC-V command generation.
+`cargo test --locked` validates configuration serialization, AccessKit semantics and QEMU argument generation against the committed dependency graph. Hosted GitHub Actions additionally builds the release binary and verifies the AccessibleAndroid x86_64 contract plus ARM64 and RISC-V command generation.
 
 ### 2. Hosted Windows accessibility probe
 
@@ -99,9 +103,9 @@ For an actual signed-in Windows desktop, run from the repository root:
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\accessible-utm\tests\windows_interactive_gate.ps1
 ```
 
-This performs the release Rust tests/build, launches the real GUI, inspects the Windows UI Automation tree, exercises the F9 keyboard path, records environment and executable SHA-256 metadata, and creates an `AccessibleUTM-Evidence-*.zip` package on the desktop.
+This verifies the committed Cargo lockfile, performs the locked release Rust tests/build, launches the real GUI, inspects the Windows UI Automation tree, exercises the F9 keyboard path, records environment plus executable/Cargo.lock SHA-256 metadata, and creates an `AccessibleUTM-Evidence-*.zip` package on the desktop.
 
-The same strict smoke test is available through the `AccessibleUTM UIA Interactive` GitHub workflow when a Windows x64 self-hosted runner is launched inside a signed-in interactive session rather than Session 0.
+The same strict gate is available through the `AccessibleUTM UIA Interactive` GitHub workflow when a Windows x64 self-hosted runner is launched inside a signed-in interactive session rather than Session 0.
 
 ### 4. Screen-reader release gate
 
