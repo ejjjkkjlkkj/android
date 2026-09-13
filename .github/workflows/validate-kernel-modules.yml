@@ -23,9 +23,7 @@ jobs:
           board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
           required=",${KERNEL_REQUIRED_VM_MODULES},"
 
-          # These are the loadable modules actually emitted by the Android 17
-          # x86_64 GKI + virtual-device dist and consumed by AccessibleAndroid.
-          modules=(
+          required_modules=(
             virtio_pci.ko
             virtio_blk.ko
             virtio-rng.ko
@@ -36,7 +34,7 @@ jobs:
             virtio_snd.ko
           )
 
-          for module in "${modules[@]}"; do
+          for module in "${required_modules[@]}"; do
             case "$required" in
               *",${module},"*) ;;
               *)
@@ -46,19 +44,30 @@ jobs:
             esac
           done
 
-          # drivers/virtio/Makefile links virtio_pci_modern.o into virtio_pci.ko;
-          # there is no separate virtio_pci_modern_dev.ko in this Android 17 dist.
-          if grep -Fq 'virtio_pci_modern_dev.ko' config/kernel.env "$board"; then
-            echo 'ERROR: obsolete nonexistent virtio_pci_modern_dev.ko requirement is still present.' >&2
-            exit 1
-          fi
+          # PCI helper packaging varies across Android 17 kernel revisions.
+          # They may be separate .ko files, so stage them when present, but they
+          # must never make the kernel build fail when the transport is packaged
+          # without separate helpers.
+          for optional in virtio_pci_modern_dev.ko virtio_pci_legacy_dev.ko; do
+            case "$required" in
+              *",${optional},"*)
+                echo "ERROR: optional PCI helper is incorrectly hard-required: $optional" >&2
+                exit 1
+                ;;
+            esac
+            grep -Fq "$optional" "$board"
+          done
 
-          grep -Fq 'ACCESSIBLE_FIRST_STAGE_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_LOAD_MODULES :=' "$board"
           for module in virtio_pci.ko virtio_blk.ko virtio-rng.ko; do
             grep -Fq "$module" "$board"
           done
 
-          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' "$board"
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(ACCESSIBLE_FIRST_STAGE_MODULES)' "$board"
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_LOAD_MODULES)' "$board"
           grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' "$board"
           for module in virtio-gpu.ko virtio-rng.ko virtio_dma_buf.ko virtio_input.ko virtio_net.ko virtio_snd.ko; do
             grep -Fq "$module" "$board"
