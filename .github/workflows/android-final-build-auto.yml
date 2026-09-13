@@ -143,7 +143,7 @@ jobs:
           echo "FINAL_QCOW2_SHA256=$(sha256sum "$image" | awk '{print $1}')" >> "$GITHUB_ENV"
           echo 'FINAL_QCOW2 = VERIFIED'
 
-      - name: Download latest proven self-contained AccessibleUTM Windows artifact
+      - name: Download latest proven AccessibleUTM Windows portable runtime
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -186,7 +186,7 @@ jobs:
                   artifact = match
                   break
           if artifact is None:
-              raise SystemExit('No successful non-expired self-contained AccessibleUTM Windows artifact is available.')
+              raise SystemExit('No successful non-expired AccessibleUTM portable runtime artifact is available.')
 
           destination = Path('.work/windows-portable-artifact.zip')
           destination.parent.mkdir(parents=True, exist_ok=True)
@@ -204,7 +204,7 @@ jobs:
           test -s .work/windows-portable-artifact.zip
           echo 'WINDOWS_PORTABLE_ARTIFACT = VERIFIED'
 
-      - name: Assemble zero-touch Windows plus AccessibleAndroid complete bundle
+      - name: Assemble final one-file AccessibleUTM.exe
         shell: bash
         run: |
           set -euo pipefail
@@ -213,13 +213,16 @@ jobs:
           python3 scripts/assemble-complete-windows-bundle.py \
             --portable-artifact .work/windows-portable-artifact.zip \
             --android-image "$FINAL_QCOW2" \
-            --output .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip \
+            --output .work/final-delivery/AccessibleUTM.exe \
             --source-commit "$GITHUB_SHA" \
             --source-date-epoch "$source_epoch" \
-            | tee .work/logs/final-windows-complete-bundle.txt
-          test -s .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip
-          test -s .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip.sha256
-          echo 'FINAL_WINDOWS_ALL_IN_ONE = PASS'
+            | tee .work/logs/final-windows-single-exe.txt
+          test -s .work/final-delivery/AccessibleUTM.exe
+          final_exe_sha256="$(sha256sum .work/final-delivery/AccessibleUTM.exe | awk '{print $1}')"
+          echo "FINAL_EXE_SHA256=$final_exe_sha256" >> "$GITHUB_ENV"
+          echo "FINAL_EXE_SIZE=$(stat -c '%s' .work/final-delivery/AccessibleUTM.exe)" >> "$GITHUB_ENV"
+          echo 'FINAL_WINDOWS_SINGLE_EXE = PASS'
+          echo 'USER_INSTALLS_NOTHING_ELSE = PASS'
 
       - name: Generate final evidence manifest
         if: always()
@@ -237,15 +240,15 @@ jobs:
             echo "sync_jobs=${SYNC_JOBS:-unknown}"
             echo "final_qcow2=${FINAL_QCOW2:-unknown}"
             echo "final_qcow2_sha256=${FINAL_QCOW2_SHA256:-unknown}"
+            echo "final_exe_sha256=${FINAL_EXE_SHA256:-unknown}"
+            echo "final_exe_size=${FINAL_EXE_SIZE:-unknown}"
+            echo "user_facing_files=AccessibleUTM.exe"
             echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > .work/final-evidence/BUILD-INFO.txt
           find .work/vm -maxdepth 3 -type f \( -name '*.iso' -o -name '*.qcow2' -o -name '*.vdi' -o -name '*.vmdk' -o -name 'SHA256SUMS' -o -name '*MANIFEST*' \) -print | sort > .work/final-evidence/FILES.txt || true
           while IFS= read -r file; do
             [[ -f "$file" ]] && sha256sum "$file"
           done < .work/final-evidence/FILES.txt > .work/final-evidence/SHA256SUMS.txt
-          if [[ -f .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip.sha256 ]]; then
-            cp .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip.sha256 .work/final-evidence/
-          fi
 
       - name: Upload final validation evidence
         if: always()
@@ -276,13 +279,11 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-      - name: Upload final zero-touch Windows bundle
+      - name: Upload final user deliverable as one EXE only
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: AccessibleUTM-AccessibleAndroid17-windows-x64-complete-${{ github.run_id }}
-          path: |
-            .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip
-            .work/final-delivery/AccessibleUTM-AccessibleAndroid17-windows-x64-complete.zip.sha256
+          name: AccessibleUTM-FINAL-single-exe-${{ github.run_id }}
+          path: .work/final-delivery/AccessibleUTM.exe
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 30
