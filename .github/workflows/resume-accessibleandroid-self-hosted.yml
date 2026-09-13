@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: accessibleandroid-recovery-resume-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   recover-build-test:
