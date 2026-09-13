@@ -143,7 +143,7 @@ jobs:
           echo "FINAL_QCOW2_SHA256=$(sha256sum "$image" | awk '{print $1}')" >> "$GITHUB_ENV"
           echo 'FINAL_QCOW2 = VERIFIED'
 
-      - name: Download latest proven AccessibleUTM Windows portable runtime
+      - name: Download latest proven one-file AccessibleUTM base
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -171,7 +171,7 @@ jobs:
 
           runs_url = (
               f'https://api.github.com/repos/{repo}/actions/workflows/'
-              'accessible-utm-windows.yml/runs?branch=accessible-virtual-suite&status=success&per_page=30'
+              'accessible-utm-single-exe.yml/runs?branch=accessible-virtual-suite&status=success&per_page=30'
           )
           runs = get_json(runs_url).get('workflow_runs', [])
           selected = None
@@ -180,15 +180,15 @@ jobs:
               artifacts = get_json(
                   f'https://api.github.com/repos/{repo}/actions/runs/{run["id"]}/artifacts?per_page=100'
               ).get('artifacts', [])
-              match = next((a for a in artifacts if a['name'] == 'AccessibleUTM-windows-x64-portable' and not a['expired']), None)
+              match = next((a for a in artifacts if a['name'] == 'AccessibleUTM-single-exe' and not a['expired']), None)
               if match:
                   selected = run
                   artifact = match
                   break
           if artifact is None:
-              raise SystemExit('No successful non-expired AccessibleUTM portable runtime artifact is available.')
+              raise SystemExit('No successful non-expired proven AccessibleUTM single-EXE artifact is available.')
 
-          destination = Path('.work/windows-portable-artifact.zip')
+          destination = Path('.work/windows-single-exe-artifact.zip')
           destination.parent.mkdir(parents=True, exist_ok=True)
           req = urllib.request.Request(artifact['archive_download_url'], headers=headers)
           with urllib.request.urlopen(req) as response, destination.open('wb') as out:
@@ -197,21 +197,22 @@ jobs:
                   if not chunk:
                       break
                   out.write(chunk)
-          print(f'WINDOWS_PORTABLE_RUN_ID={selected["id"]}')
-          print(f'WINDOWS_PORTABLE_ARTIFACT_ID={artifact["id"]}')
-          print(f'WINDOWS_PORTABLE_ARTIFACT={destination}')
+          print(f'WINDOWS_SINGLE_EXE_RUN_ID={selected["id"]}')
+          print(f'WINDOWS_SINGLE_EXE_HEAD_SHA={selected["head_sha"]}')
+          print(f'WINDOWS_SINGLE_EXE_ARTIFACT_ID={artifact["id"]}')
+          print(f'WINDOWS_SINGLE_EXE_ARTIFACT={destination}')
           PY
-          test -s .work/windows-portable-artifact.zip
-          echo 'WINDOWS_PORTABLE_ARTIFACT = VERIFIED'
+          test -s .work/windows-single-exe-artifact.zip
+          echo 'PROVEN_WINDOWS_SINGLE_EXE_ARTIFACT = VERIFIED'
 
-      - name: Assemble final one-file AccessibleUTM.exe
+      - name: Assemble final one-file AccessibleUTM.exe from proven base
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p .work/final-delivery
           source_epoch="$(git show -s --format=%ct HEAD)"
           python3 scripts/assemble-complete-windows-bundle.py \
-            --portable-artifact .work/windows-portable-artifact.zip \
+            --single-exe-artifact .work/windows-single-exe-artifact.zip \
             --android-image "$FINAL_QCOW2" \
             --output .work/final-delivery/AccessibleUTM.exe \
             --source-commit "$GITHUB_SHA" \
@@ -221,6 +222,11 @@ jobs:
           final_exe_sha256="$(sha256sum .work/final-delivery/AccessibleUTM.exe | awk '{print $1}')"
           echo "FINAL_EXE_SHA256=$final_exe_sha256" >> "$GITHUB_ENV"
           echo "FINAL_EXE_SIZE=$(stat -c '%s' .work/final-delivery/AccessibleUTM.exe)" >> "$GITHUB_ENV"
+          grep -Fq 'PROVEN_SINGLE_EXE_BASE_REUSED = PASS' .work/logs/final-windows-single-exe.txt
+          grep -Fq 'ACCESSIBLE_UTM_EMBEDDED_QEMU = PASS' .work/logs/final-windows-single-exe.txt
+          grep -Fq 'ACCESSIBLE_UTM_EMBEDDED_UEFI = PASS' .work/logs/final-windows-single-exe.txt
+          grep -Fq 'ACCESSIBLE_ANDROID_IMAGE_IN_EXE = PASS' .work/logs/final-windows-single-exe.txt
+          grep -Fq 'USER_INSTALLS_NOTHING_ELSE = PASS' .work/logs/final-windows-single-exe.txt
           echo 'FINAL_WINDOWS_SINGLE_EXE = PASS'
           echo 'USER_INSTALLS_NOTHING_ELSE = PASS'
 
