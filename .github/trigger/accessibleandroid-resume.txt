@@ -1,3 +1,4 @@
 Trigger the self-hosted AccessibleAndroid recovery/resume workflow.
 Requested: 2026-09-13
-Purpose: preserve divergent runner work, resume AOSP Android 17 build, build the preinstalled disk, and validate BIOS/UEFI boot.
+Target: fix/queue-android-final-builds-20260913
+Purpose: cancel stale main build, preserve divergent runner work, resume the latest Android 17 build, build the preinstalled disk, and validate BIOS/UEFI boot.
