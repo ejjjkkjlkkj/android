@@ -63,11 +63,38 @@ while true; do
   fi
 done
 
-# A successful global repo sync is not sufficient evidence that every checkout is
-# complete. A previous interrupted sync left libcore/Android.bp present while
-# files it includes were missing, causing Soong bootstrap to fail later. Validate
-# the critical libcore worktree now and repair only that manifest project when
-# necessary. libcore is upstream source and is not modified by AccessibleAndroid.
+# A successful global repo sync is not sufficient evidence that every existing
+# worktree is complete after an interrupted checkout. Detect only tracked files
+# that are missing and unresolved index entries; deliberately ignore untracked
+# AccessibleAndroid files so the persistent workspace remains non-destructive.
+mapfile -t damaged_projects < <(
+  repo forall -c '
+    missing="$(git ls-files -d)"
+    unmerged="$(git ls-files -u)"
+    if test -n "$missing" || test -n "$unmerged"; then
+      printf "%s\n" "$REPO_PATH"
+    fi
+  ' | sed '/^[[:space:]]*$/d' | sort -u
+)
+
+if (( ${#damaged_projects[@]} > 0 )); then
+  echo "AOSP_WORKTREE_REPAIR_COUNT = ${#damaged_projects[@]}"
+  for project_path in "${damaged_projects[@]}"; do
+    echo "AOSP_WORKTREE_REPAIR = $project_path"
+    repo sync -c -j1 --fail-fast --force-checkout "$project_path"
+    if [[ -n "$(git -C "$project_path" ls-files -d)" || -n "$(git -C "$project_path" ls-files -u)" ]]; then
+      echo "ERROR: AOSP project remains incomplete after repair: $project_path" >&2
+      exit 1
+    fi
+  done
+else
+  echo "AOSP_WORKTREE_REPAIR_COUNT = 0"
+fi
+
+echo "AOSP_TRACKED_WORKTREE_INTEGRITY = PASS"
+
+# libcore is a critical Soong bootstrap input. Keep an explicit fail-closed
+# check for the exact corruption already observed on the self-hosted runner.
 libcore_required_files=(
   "libcore/JavaLibrary.bp"
   "libcore/NativeCode.bp"
