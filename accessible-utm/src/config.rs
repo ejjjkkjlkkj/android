@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const VM_CONFIG_SCHEMA_VERSION: u32 = 1;
 
@@ -103,17 +104,51 @@ pub struct VmConfig {
     pub qmp_port: u16,
 }
 
+fn application_directory() -> Option<PathBuf> {
+    env::current_exe().ok()?.parent().map(Path::to_path_buf)
+}
+
+fn bundled_file(relative: &[&str]) -> Option<String> {
+    let mut path = application_directory()?;
+    for component in relative {
+        path.push(component);
+    }
+    path.is_file().then(|| path.to_string_lossy().into_owned())
+}
+
+fn bundled_x86_firmware() -> Option<String> {
+    for relative in [
+        &["qemu", "share", "edk2-x86_64-code.fd"][..],
+        &["qemu", "edk2-x86_64-code.fd"][..],
+        &["qemu", "share", "edk2-i386-code.fd"][..],
+    ] {
+        if let Some(path) = bundled_file(relative) {
+            return Some(path);
+        }
+    }
+    None
+}
+
 impl Default for VmConfig {
     fn default() -> Self {
+        let disk_path = bundled_file(&["images", "AccessibleAndroid.qcow2"])
+            .or_else(|| bundled_file(&["images", "AccessibleAndroid.img"]))
+            .unwrap_or_default();
+        let iso_path = if disk_path.is_empty() {
+            bundled_file(&["images", "AccessibleAndroid.iso"]).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         Self {
             schema_version: VM_CONFIG_SCHEMA_VERSION,
             name: "AccessibleAndroid".to_owned(),
             profile: GuestProfile::AccessibleAndroid,
             architecture: Architecture::X86_64,
             qemu_binary: String::new(),
-            iso_path: String::new(),
-            disk_path: String::new(),
-            firmware_path: String::new(),
+            iso_path,
+            disk_path,
+            firmware_path: bundled_x86_firmware().unwrap_or_default(),
             memory_mib: 8192,
             cpu_count: 6,
             qmp_port: 4444,
