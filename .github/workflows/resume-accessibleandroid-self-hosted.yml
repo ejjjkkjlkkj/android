@@ -1,0 +1,227 @@
+name: AccessibleAndroid recovery and resume
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/trigger/accessibleandroid-resume.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: accessibleandroid-recovery-resume-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  recover-build-test:
+    name: Recover runner state, build Android 17, and validate boot
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 720
+    env:
+      ANDROID_BUILD_JOBS: '4'
+      KERNEL_SYNC_JOBS: '4'
+      SYNC_JOBS: '4'
+      BOOT_TIMEOUT_SECONDS: '360'
+    steps:
+      - name: Preserve pre-checkout runner Git state
+        id: preserve
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/recovery
+          if [[ -d .git ]]; then
+            pre_head="$(git rev-parse HEAD 2>/dev/null || true)"
+            printf '%s\n' "$pre_head" > .work/recovery/pre-checkout-head.txt
+            git status --porcelain=v1 > .work/recovery/pre-checkout-status.txt || true
+            git diff > .work/recovery/pre-checkout-worktree.patch || true
+            git diff --cached > .work/recovery/pre-checkout-index.patch || true
+            if [[ -n "$pre_head" ]]; then
+              git bundle create .work/recovery/pre-checkout.bundle --all || true
+            fi
+            echo "PRE_CHECKOUT_HEAD=$pre_head" >> "$GITHUB_ENV"
+            echo "Pre-checkout HEAD: ${pre_head:-none}"
+          else
+            : > .work/recovery/pre-checkout-head.txt
+            : > .work/recovery/pre-checkout-status.txt
+            echo 'PRE_CHECKOUT_HEAD=' >> "$GITHUB_ENV"
+            echo 'No existing Git checkout was present.'
+          fi
+
+      - name: Checkout GitHub main without deleting persistent workspaces
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          clean: false
+          persist-credentials: true
+
+      - name: Publish divergent pre-checkout commit as recovery branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          pre_head="${PRE_CHECKOUT_HEAD:-}"
+          if [[ -z "$pre_head" ]]; then
+            echo 'No pre-checkout commit to preserve.'
+            exit 0
+          fi
+          if ! git cat-file -e "${pre_head}^{commit}" 2>/dev/null; then
+            echo "Pre-checkout commit object is no longer available: $pre_head"
+            exit 0
+          fi
+          current="$(git rev-parse HEAD)"
+          if [[ "$pre_head" == "$current" ]]; then
+            echo 'Runner checkout already matched GitHub main.'
+            exit 0
+          fi
+          branch="recovery/runner-local-${GITHUB_RUN_ID}"
+          git push origin "$pre_head:refs/heads/$branch"
+          echo "RECOVERY_BRANCH=$branch" >> "$GITHUB_ENV"
+          echo "Published local runner commit $pre_head to $branch"
+
+      - name: Diagnose builder and persistent Android workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RUNNER_NAME=$RUNNER_NAME"
+          echo "RUNNER_OS=$RUNNER_OS"
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          uname -a
+          nproc
+          free -h || true
+          df -h .
+          if [[ -d .work/aosp/.repo ]]; then
+            echo 'AOSP_WORKSPACE_STATE=incremental'
+            echo 'Persistent .work/aosp/.repo found.'
+          else
+            echo 'AOSP_WORKSPACE_STATE=fresh'
+            echo 'No persistent AOSP .repo found; sync will initialize it.'
+          fi
+          if [[ -f .work/aosp/build/envsetup.sh ]]; then
+            echo 'AOSP_ENVSETUP=present'
+          else
+            echo 'AOSP_ENVSETUP=missing-before-sync'
+          fi
+          cat /proc/pressure/memory 2>/dev/null || true
+
+      - name: Refuse an overlapping Android build
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(pgrep -af '(^|/)(siso|ninja)( |$)|soong_ui|soong_build' || true)"
+          if [[ -n "$active" ]]; then
+            echo "$active"
+            echo 'ERROR: an Android build is already active on this runner.' >&2
+            exit 1
+          fi
+          echo 'No overlapping Android build detected.'
+
+      - name: Verify critical host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4)
+          missing=0
+          for command_name in "${required[@]}"; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              printf '%-24s %s\n' "$command_name" "$(command -v "$command_name")"
+            else
+              echo "MISSING: $command_name" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          if (( EUID != 0 )); then
+            sudo -n true
+          fi
+
+      - name: Select QEMU acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo 'QEMU_ACCEL=kvm' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL=kvm'
+          else
+            echo 'QEMU_ACCEL=tcg' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL=tcg'
+          fi
+
+      - name: Resume synchronized AccessibleAndroid AOSP build
+        shell: bash
+        env:
+          BOOTSTRAP_HOST: '0'
+          BOOTSTRAP_SDK: '1'
+          BUILD_KERNEL: '1'
+        run: bash scripts/build-from-zero.sh accessible-aosp
+
+      - name: Build preinstalled BIOS and UEFI disk
+        shell: bash
+        env:
+          EXPORT_ALL_FORMATS: '0'
+        run: bash scripts/build-preinstalled-disk.sh
+
+      - name: Validate BIOS and UEFI boot in QEMU
+        shell: bash
+        run: TEST_MODE=all bash scripts/test-preinstalled-disk-qemu.sh
+
+      - name: Record recovery and build provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "github_commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "runner_name=${RUNNER_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "pre_checkout_head=${PRE_CHECKOUT_HEAD:-none}"
+            echo "recovery_branch=${RECOVERY_BRANCH:-none}"
+            echo "qemu_accel=${QEMU_ACCEL:-unknown}"
+            echo "android_build_jobs=${ANDROID_BUILD_JOBS}"
+            echo "sync_jobs=${SYNC_JOBS}"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > .work/logs/github-recovery-resume-provenance.txt
+
+      - name: Publish run summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## AccessibleAndroid recovery and resume'
+            echo
+            echo "GitHub commit: ${GITHUB_SHA}"
+            echo "Pre-checkout runner commit: ${PRE_CHECKOUT_HEAD:-none}"
+            echo "Recovery branch: ${RECOVERY_BRANCH:-none}"
+            echo "QEMU acceleration: ${QEMU_ACCEL:-unknown}"
+            echo "Android build jobs: ${ANDROID_BUILD_JOBS}"
+            if [[ -f .work/vm/preinstalled/SHA256SUMS ]]; then
+              echo
+              echo '### Disk hashes'
+              echo '```text'
+              cat .work/vm/preinstalled/SHA256SUMS
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload recovery data and validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-recovery-resume-${{ github.run_id }}
+          path: |
+            .work/recovery/**
+            .work/logs/**
+            .work/vm/preinstalled/DISK-MANIFEST.txt
+            .work/vm/preinstalled/GPT.txt
+            .work/vm/preinstalled/SHA256SUMS
+            .work/vm/*.iso.sha256
+            config/aosp-pinned-manifest.xml
+            config/kernel-pinned-manifest.xml
+          if-no-files-found: warn
+          retention-days: 30
