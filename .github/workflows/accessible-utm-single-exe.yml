@@ -1,0 +1,163 @@
+name: AccessibleUTM single EXE
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - 'accessible-utm/**'
+      - '.github/workflows/accessible-utm-single-exe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-utm-single-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-single-exe:
+    name: Build and prove one-file AccessibleUTM
+    runs-on: windows-2025
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify Rust toolchain and lockfile
+        shell: pwsh
+        run: |
+          rustc -vV
+          cargo -V
+          cargo metadata --locked --no-deps --manifest-path accessible-utm/Cargo.toml --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "cargo metadata --locked failed: $LASTEXITCODE" }
+          git diff --exit-code -- accessible-utm/Cargo.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo.lock changed during validation.' }
+
+      - name: Cargo release tests
+        shell: pwsh
+        run: cargo test --release --locked --manifest-path accessible-utm/Cargo.toml
+
+      - name: Build static-CRT release executable
+        shell: pwsh
+        run: cargo build --release --locked --manifest-path accessible-utm/Cargo.toml
+
+      - name: Prove application has no VC redistributable dependency
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'accessible-utm/target/release/accessible-utm.exe').Path
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Out-String).Trim()
+          if ([string]::IsNullOrWhiteSpace($vs)) { throw 'Visual Studio C++ tools were not found.' }
+          $dumpbin = Get-ChildItem -Path (Join-Path $vs 'VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe') -File | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $dumpbin) { throw 'dumpbin.exe was not found.' }
+          $deps = (& $dumpbin.FullName /DEPENDENTS $exe | Out-String)
+          Write-Host $deps
+          foreach ($dll in @('VCRUNTIME140.dll','VCRUNTIME140_1.dll','MSVCP140.dll','MSVCP140_1.dll','MSVCP140_2.dll')) {
+            if ($deps -match [regex]::Escape($dll)) { throw "External VC runtime dependency remains: $dll" }
+          }
+          Write-Host 'ACCESSIBLE_UTM_STATIC_CRT = PASS'
+
+      - name: Download verified QEMU 11.1.0 Windows runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://qemu.weilnetz.de/w64/2026/qemu-w64-setup-20260811.exe'
+          $expected = '5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543'
+          $installer = Join-Path $env:RUNNER_TEMP 'qemu-w64-setup-20260811.exe'
+          $qemuDir = Join-Path $env:RUNNER_TEMP 'qemu-single-runtime'
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "QEMU installer SHA-512 mismatch: $actual" }
+          Remove-Item -LiteralPath $qemuDir -Recurse -Force -ErrorAction SilentlyContinue
+          $arguments = @('/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', "/DIR=$qemuDir")
+          $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "QEMU installer failed: $($process.ExitCode)" }
+          foreach ($name in @('qemu-system-x86_64.exe','qemu-system-aarch64.exe','qemu-system-riscv64.exe','qemu-img.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $qemuDir $name) -PathType Leaf)) { throw "QEMU runtime missing $name" }
+          }
+          $version = (& (Join-Path $qemuDir 'qemu-system-x86_64.exe') --version | Select-Object -First 1 | Out-String).Trim()
+          if ($version -notmatch 'QEMU emulator version 11\.1\.0') { throw "Unexpected QEMU version: $version" }
+          "QEMU_SINGLE_DIR=$qemuDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'QEMU_SINGLE_RUNTIME = VERIFIED'
+
+      - name: Build deterministic one-file executable twice
+        shell: pwsh
+        run: |
+          $baseExe = 'accessible-utm/target/release/accessible-utm.exe'
+          ./accessible-utm/scripts/package-single-exe.ps1 -Executable $baseExe -QemuDirectory $env:QEMU_SINGLE_DIR
+          $single = 'accessible-utm/dist-single/AccessibleUTM.exe'
+          if (-not (Test-Path -LiteralPath $single -PathType Leaf)) { throw 'Single executable was not generated.' }
+          $hash1 = (Get-FileHash -LiteralPath $single -Algorithm SHA256).Hash
+          $size1 = (Get-Item -LiteralPath $single).Length
+          ./accessible-utm/scripts/package-single-exe.ps1 -Executable $baseExe -QemuDirectory $env:QEMU_SINGLE_DIR
+          $hash2 = (Get-FileHash -LiteralPath $single -Algorithm SHA256).Hash
+          $size2 = (Get-Item -LiteralPath $single).Length
+          if ($hash1 -ne $hash2 -or $size1 -ne $size2) {
+            throw "Single EXE packaging is not reproducible: $hash1/$size1 != $hash2/$size2"
+          }
+          Write-Host 'ACCESSIBLE_UTM_SINGLE_EXE_REPRODUCIBILITY = PASS'
+          Write-Host "ACCESSIBLE_UTM_SINGLE_EXE_SHA256 = $($hash2.ToLowerInvariant())"
+          Write-Host "ACCESSIBLE_UTM_SINGLE_EXE_SIZE = $size2"
+
+      - name: Prove one EXE works in an empty directory
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path 'accessible-utm/dist-single/AccessibleUTM.exe').Path
+          $proof = Join-Path $env:RUNNER_TEMP 'accessible-utm-one-file-proof'
+          $isolated = Join-Path $proof 'empty-folder'
+          $local = Join-Path $proof 'LocalAppData'
+          Remove-Item -LiteralPath $proof -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $isolated -Force | Out-Null
+          New-Item -ItemType Directory -Path $local -Force | Out-Null
+          Copy-Item -LiteralPath $source -Destination (Join-Path $isolated 'AccessibleUTM.exe')
+          $items = @(Get-ChildItem -LiteralPath $isolated -Force)
+          if ($items.Count -ne 1 -or $items[0].Name -ne 'AccessibleUTM.exe') {
+            throw 'Proof directory must contain exactly one file: AccessibleUTM.exe'
+          }
+
+          $oldLocal = $env:LOCALAPPDATA
+          try {
+            $env:LOCALAPPDATA = $local
+            $app = Join-Path $isolated 'AccessibleUTM.exe'
+            $version = (& $app --version | Out-String).Trim()
+            if ($version -ne 'AccessibleUTM 0.1.0') { throw "Single EXE failed version probe: $version" }
+
+            $qemu = Get-ChildItem -LiteralPath $local -Filter 'qemu-system-x86_64.exe' -File -Recurse | Select-Object -First 1
+            $arm = Get-ChildItem -LiteralPath $local -Filter 'qemu-system-aarch64.exe' -File -Recurse | Select-Object -First 1
+            $riscv = Get-ChildItem -LiteralPath $local -Filter 'qemu-system-riscv64.exe' -File -Recurse | Select-Object -First 1
+            $qemuImg = Get-ChildItem -LiteralPath $local -Filter 'qemu-img.exe' -File -Recurse | Select-Object -First 1
+            foreach ($item in @($qemu,$arm,$riscv,$qemuImg)) {
+              if ($null -eq $item) { throw 'Embedded QEMU extraction is incomplete.' }
+            }
+
+            $qemuVersion = (& $qemu.FullName --version | Select-Object -First 1 | Out-String).Trim()
+            if ($qemuVersion -notmatch 'QEMU emulator version 11\.1\.0') { throw "Extracted QEMU failed: $qemuVersion" }
+
+            $command = (& $app --profile accessible-android --arch x86_64 --disk AccessibleAndroid.qcow2 --print-qemu-command | Out-String)
+            if ($command -notlike "*$($qemu.FullName)*") {
+              throw "AccessibleUTM did not select its embedded QEMU runtime.`nExpected: $($qemu.FullName)`nActual: $command"
+            }
+            if ($command -like '*C:\Program Files\qemu*') { throw "Global QEMU dependency leaked into command: $command" }
+          }
+          finally {
+            $env:LOCALAPPDATA = $oldLocal
+          }
+
+          $itemsAfter = @(Get-ChildItem -LiteralPath $isolated -Force)
+          if ($itemsAfter.Count -ne 1 -or $itemsAfter[0].Name -ne 'AccessibleUTM.exe') {
+            throw 'AccessibleUTM created sidecar files beside the EXE.'
+          }
+          Write-Host 'ACCESSIBLE_UTM_ONE_FILE_EMPTY_DIRECTORY_PROOF = PASS'
+          Write-Host 'ACCESSIBLE_UTM_NO_USER_INSTALL_REQUIRED = PASS'
+          Write-Host 'ACCESSIBLE_UTM_EMBEDDED_QEMU_RUNTIME = PASS'
+
+      - name: Upload exactly one user-facing file
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleUTM-single-exe
+          path: accessible-utm/dist-single/AccessibleUTM.exe
+          if-no-files-found: error
+          compression-level: 0
