@@ -68,8 +68,10 @@ BOARD_VENDOR_KERNEL_MODULES_LOAD := $(foreach module,$(ACCESSIBLE_RUNTIME_MODULE
 # Separate modern Android partitions. ext4 is the conservative first boot
 # format; read-only EROFS can be evaluated after the VM bring-up is stable.
 BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := ext4
+TARGET_COPY_OUT_VENDOR := vendor
 BOARD_USES_VENDORIMAGE := true
 BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4
+TARGET_COPY_OUT_PRODUCT := product
 BOARD_USES_PRODUCTIMAGE := true
 BOARD_PRODUCTIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_USES_SYSTEM_EXTIMAGE := true

@@ -88,7 +88,7 @@ jobs:
           grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$appbuild"
           grep -Fq 'dump packagename' "$appbuild"
           grep -Fq 'dump xmltree' "$appbuild"
-          grep -Fq 'TALKBACK_SERVICE_CLASS="${TALKBACK_SERVICE#*/}"' "$appbuild"
+          grep -Fq 'talkback_service_class="${TALKBACK_SERVICE#*/}"' "$appbuild"
           grep -Fq 'android.intent.action.TTS_SERVICE' "$appbuild"
           grep -Fq 'TALKBACK_SERVICE = VERIFIED' "$appbuild"
           grep -Fq 'ESPEAK_TTS_SERVICE = VERIFIED' "$appbuild"
