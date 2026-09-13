@@ -1,4 +1,5 @@
 use crate::config::{Architecture, GuestProfile, VmConfig};
+use std::env;
 use std::path::Path;
 
 pub const ANDROID_OS_DISK_ID: &str = "osdisk";
@@ -14,12 +15,23 @@ pub fn qemu_program_name(architecture: Architecture) -> &'static str {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn bundled_qemu_binary(exe: &str) -> Option<String> {
+    let current_exe = env::current_exe().ok()?;
+    let app_dir = current_exe.parent()?;
+    let candidate = app_dir.join("qemu").join(exe);
+    candidate.is_file().then(|| candidate.to_string_lossy().into_owned())
+}
+
 pub fn default_qemu_binary(architecture: Architecture) -> String {
     let program = qemu_program_name(architecture);
 
     #[cfg(target_os = "windows")]
     {
         let exe = format!("{program}.exe");
+        if let Some(candidate) = bundled_qemu_binary(&exe) {
+            return candidate;
+        }
         let candidates = [
             format!(r"C:\Program Files\qemu\{exe}"),
             format!(r"C:\Program Files (x86)\qemu\{exe}"),
