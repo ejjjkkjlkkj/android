@@ -20,9 +20,12 @@ jobs:
           set -euo pipefail
           source config/kernel.env
 
+          board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
           required=",${KERNEL_REQUIRED_VM_MODULES},"
+
+          # These are the loadable modules actually emitted by the Android 17
+          # x86_64 GKI + virtual-device dist and consumed by AccessibleAndroid.
           modules=(
-            virtio_pci_modern_dev.ko
             virtio_pci.ko
             virtio_blk.ko
             virtio-rng.ko
@@ -43,9 +46,24 @@ jobs:
             esac
           done
 
-          grep -Fq 'ACCESSIBLE_FIRST_STAGE_MODULE_NAMES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
-          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
-          grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          # drivers/virtio/Makefile links virtio_pci_modern.o into virtio_pci.ko;
+          # there is no separate virtio_pci_modern_dev.ko in this Android 17 dist.
+          if grep -Fq 'virtio_pci_modern_dev.ko' config/kernel.env "$board"; then
+            echo 'ERROR: obsolete nonexistent virtio_pci_modern_dev.ko requirement is still present.' >&2
+            exit 1
+          fi
+
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_MODULE_NAMES :=' "$board"
+          for module in virtio_pci.ko virtio_blk.ko virtio-rng.ko; do
+            grep -Fq "$module" "$board"
+          done
+
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' "$board"
+          grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' "$board"
+          for module in virtio-gpu.ko virtio-rng.ko virtio_dma_buf.ko virtio_input.ko virtio_net.ko virtio_snd.ko; do
+            grep -Fq "$module" "$board"
+          done
+
           grep -Fq 'required staged VM module is missing' scripts/stage-kernel.sh
 
           echo "KERNEL_REQUIRED_VM_MODULES=$KERNEL_REQUIRED_VM_MODULES"
