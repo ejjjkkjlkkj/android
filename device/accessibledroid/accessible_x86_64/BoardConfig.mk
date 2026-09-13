@@ -42,10 +42,11 @@ BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00/0000:00:06.0
 KERNEL_MODULE_DIR := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/modules
 KERNEL_MODULES := $(wildcard $(KERNEL_MODULE_DIR)/*.ko)
 
-# Keep first-stage init small: only modules which can be required to discover
-# the virtio system disk and provide entropy are copied to vendor_boot.
+# Keep first-stage init small: only modules required to discover the virtio
+# system disk and provide entropy are copied to vendor_boot. Modern virtio PCI
+# support is part of virtio_pci.ko; Android 17 does not emit a separate
+# virtio_pci_modern_dev.ko module.
 ACCESSIBLE_FIRST_STAGE_MODULE_NAMES := \
-    virtio_pci_modern_dev.ko \
     virtio_pci.ko \
     virtio_blk.ko \
     virtio-rng.ko
