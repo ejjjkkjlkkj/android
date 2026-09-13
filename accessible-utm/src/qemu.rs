@@ -1,4 +1,5 @@
 use crate::config::{Architecture, GuestProfile, VmConfig};
+use crate::embedded;
 use std::env;
 use std::path::Path;
 
@@ -17,6 +18,13 @@ pub fn qemu_program_name(architecture: Architecture) -> &'static str {
 
 #[cfg(target_os = "windows")]
 fn bundled_qemu_binary(exe: &str) -> Option<String> {
+    if let Some(runtime_root) = embedded::runtime_root() {
+        let candidate = runtime_root.join("qemu").join(exe);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+
     let current_exe = env::current_exe().ok()?;
     let app_dir = current_exe.parent()?;
     let candidate = app_dir.join("qemu").join(exe);
