@@ -129,7 +129,7 @@ if (( libcore_repair_required )); then
   # tree directly from HEAD. This preserves untracked files and avoids deleting
   # the persistent AOSP workspace.
   echo "AOSP_LIBCORE_RESTORE = git checkout -f HEAD -- ."
-  if ! git -C libcore rev-parse --verify HEAD^{commit} >/dev/null 2>&1; then
+  if ! git -C libcore rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1; then
     echo "ERROR: libcore HEAD is not a valid commit after repo sync" >&2
     exit 1
   fi
