@@ -1,0 +1,52 @@
+name: Validate kernel module contract
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  kernel-modules:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify boot-critical and runtime virtio modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          source config/kernel.env
+
+          required=",${KERNEL_REQUIRED_VM_MODULES},"
+          modules=(
+            virtio_pci_modern_dev.ko
+            virtio_pci.ko
+            virtio_blk.ko
+            virtio-rng.ko
+            virtio-gpu.ko
+            virtio_dma_buf.ko
+            virtio_input.ko
+            virtio_net.ko
+            virtio_snd.ko
+          )
+
+          for module in "${modules[@]}"; do
+            case "$required" in
+              *",${module},"*) ;;
+              *)
+                echo "ERROR: missing required VM module contract: $module" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_MODULE_NAMES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'required staged VM module is missing' scripts/stage-kernel.sh
+
+          echo "KERNEL_REQUIRED_VM_MODULES=$KERNEL_REQUIRED_VM_MODULES"
+          echo 'ANDROID_VIRTIO_KERNEL_CONTRACT = PASS'
