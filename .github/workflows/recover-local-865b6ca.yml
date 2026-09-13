@@ -1,0 +1,79 @@
+name: Recover unpushed runner commit 865b6ca
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/trigger/recover-local-865b6ca.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recover-runner-local-865b6ca
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Preserve and publish local commit 865b6ca
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 30
+    env:
+      LOCAL_SHA: '865b6cac418c04f0dbc589d88c117c6a503a3f29'
+      RECOVERY_BRANCH: 'recovery/local-865b6ca'
+    steps:
+      - name: Capture local commit before checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/recovery
+          if [[ ! -d .git ]]; then
+            echo 'ERROR: existing runner Git checkout is unavailable.' >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${LOCAL_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: local commit object is no longer present: $LOCAL_SHA" >&2
+            git reflog --all --date=iso > .work/recovery/reflog-after-missing-865b6ca.txt || true
+            exit 2
+          fi
+          git show --stat --oneline --decorate "$LOCAL_SHA" | tee .work/recovery/local-865b6ca-show.txt
+          git update-ref refs/recovery/local-865b6ca "$LOCAL_SHA"
+          git bundle create .work/recovery/local-865b6ca.bundle refs/recovery/local-865b6ca
+          git bundle verify .work/recovery/local-865b6ca.bundle
+          echo '[PASS] Local commit captured in bundle.'
+
+      - name: Checkout GitHub main without deleting recovery data
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          clean: false
+          persist-credentials: true
+
+      - name: Import bundle and push recovery branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .work/recovery/local-865b6ca.bundle
+          git fetch .work/recovery/local-865b6ca.bundle \
+            refs/recovery/local-865b6ca:refs/heads/recovery/local-865b6ca
+          recovered="$(git rev-parse refs/heads/recovery/local-865b6ca)"
+          test "$recovered" = "$LOCAL_SHA"
+          git push --force-with-lease origin \
+            refs/heads/recovery/local-865b6ca:refs/heads/recovery/local-865b6ca
+          echo "RECOVERED_SHA=$recovered"
+          echo "RECOVERY_BRANCH=$RECOVERY_BRANCH"
+
+      - name: Upload local commit recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: local-865b6ca-recovery-${{ github.run_id }}
+          path: |
+            .work/recovery/local-865b6ca.bundle
+            .work/recovery/local-865b6ca-show.txt
+            .work/recovery/reflog-after-missing-865b6ca.txt
+          if-no-files-found: warn
+          retention-days: 30
