@@ -42,14 +42,14 @@ jobs:
           replacement = '''        let status_node = harness.get_by_label("QEMU command printed to stdout.");
           assert_eq!(
               status_node.accesskit_node().live(),
-              Some(egui::accesskit::Live::Polite),
+              egui::accesskit::Live::Polite,
               "Updated status must be a polite AccessKit live region"
           );
           assert!(
               status_node.accesskit_node().is_live_atomic(),
               "Updated status live region must be atomic"
           );'''
-          replacement = replacement.replace('          assert_eq!', '        assert_eq!').replace('          assert!(', '        assert!(').replace('              status_node', '            status_node').replace('              Some', '            Some').replace('              "Updated', '            "Updated').replace('          );', '        );')
+          replacement = replacement.replace('          assert_eq!', '        assert_eq!').replace('          assert!(', '        assert!(').replace('              status_node', '            status_node').replace('              egui::', '            egui::').replace('              "Updated', '            "Updated').replace('          );', '        );')
           text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit(f'Expected one AccessKit status assertion, replaced {count}')
