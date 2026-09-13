@@ -18,9 +18,11 @@ concurrency:
 jobs:
   final-android-gate:
     name: Build latest PR head and prove BIOS plus UEFI boot
+    # Recovery is archival. Even if preservation of the old local commit fails,
+    # the current GitHub Android head must still receive its independent final gate.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      github.event.workflow_run.head_branch == 'main'
     runs-on: [self-hosted, Linux, X64, android-build]
     timeout-minutes: 720
     env:
@@ -157,6 +159,8 @@ jobs:
       - name: Record final Android gate provenance
         if: always()
         shell: bash
+        env:
+          RECOVERY_CONCLUSION: ${{ github.event.workflow_run.conclusion || 'manual' }}
         run: |
           set -euo pipefail
           mkdir -p .work/final-evidence
@@ -166,6 +170,7 @@ jobs:
             echo "build_source_sha=${BUILD_SOURCE_SHA:-unknown}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "runner=${RUNNER_NAME}"
+            echo "recovery_conclusion=${RECOVERY_CONCLUSION}"
             echo "qemu_accel=${QEMU_ACCEL:-unknown}"
             echo "android_build_jobs=${ANDROID_BUILD_JOBS:-unknown}"
             echo "sync_jobs=${SYNC_JOBS:-unknown}"
