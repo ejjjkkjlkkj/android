@@ -68,6 +68,9 @@ done
 # that are missing and unresolved index entries; deliberately ignore untracked
 # AccessibleAndroid files so the persistent workspace remains non-destructive.
 mapfile -t damaged_projects < <(
+  # The single quotes are intentional: REPO_PATH and the git commands must be
+  # evaluated inside each shell spawned by `repo forall`, not by this script.
+  # shellcheck disable=SC2016
   repo forall -c '
     missing="$(git ls-files -d)"
     unmerged="$(git ls-files -u)"
