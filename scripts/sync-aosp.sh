@@ -122,6 +122,25 @@ if (( libcore_repair_required )); then
     git -C libcore status --short || true
   fi
   repo sync -c -j1 --fail-fast --force-checkout libcore
+
+  # A repo-managed worktree can remain physically empty after an interrupted
+  # checkout even when repo sync reports success. If the manifest revision is
+  # present in the local object database, restore the complete tracked libcore
+  # tree directly from HEAD. This preserves untracked files and avoids deleting
+  # the persistent AOSP workspace.
+  echo "AOSP_LIBCORE_RESTORE = git checkout -f HEAD -- ."
+  if ! git -C libcore rev-parse --verify HEAD^{commit} >/dev/null 2>&1; then
+    echo "ERROR: libcore HEAD is not a valid commit after repo sync" >&2
+    exit 1
+  fi
+  for required_file in "${libcore_required_files[@]}"; do
+    relative_file="${required_file#libcore/}"
+    if ! git -C libcore cat-file -e "HEAD:$relative_file"; then
+      echo "ERROR: libcore HEAD does not contain required file: $relative_file" >&2
+      exit 1
+    fi
+  done
+  git -C libcore checkout -f HEAD -- .
 fi
 
 for required_file in "${libcore_required_files[@]}"; do
@@ -130,6 +149,12 @@ for required_file in "${libcore_required_files[@]}"; do
     exit 1
   fi
 done
+
+if [[ -n "$(git -C libcore ls-files -d)" || -n "$(git -C libcore ls-files -u)" ]]; then
+  echo "ERROR: libcore still has missing or unmerged tracked files after repair" >&2
+  git -C libcore status --short || true
+  exit 1
+fi
 
 echo "AOSP_LIBCORE_INTEGRITY = PASS"
 
