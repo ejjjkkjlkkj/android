@@ -63,6 +63,41 @@ while true; do
   fi
 done
 
+# A successful global repo sync is not sufficient evidence that every checkout is
+# complete. A previous interrupted sync left libcore/Android.bp present while
+# files it includes were missing, causing Soong bootstrap to fail later. Validate
+# the critical libcore worktree now and repair only that manifest project when
+# necessary. libcore is upstream source and is not modified by AccessibleAndroid.
+libcore_required_files=(
+  "libcore/JavaLibrary.bp"
+  "libcore/NativeCode.bp"
+  "libcore/Extras.bp"
+)
+libcore_repair_required=0
+for required_file in "${libcore_required_files[@]}"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "AOSP_LIBCORE_MISSING = $required_file" >&2
+    libcore_repair_required=1
+  fi
+done
+
+if (( libcore_repair_required )); then
+  echo "AOSP_LIBCORE_REPAIR = targeted repo sync --force-checkout libcore"
+  if [[ -d libcore ]]; then
+    git -C libcore status --short || true
+  fi
+  repo sync -c -j1 --fail-fast --force-checkout libcore
+fi
+
+for required_file in "${libcore_required_files[@]}"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "ERROR: required libcore file is still missing after targeted repair: $required_file" >&2
+    exit 1
+  fi
+done
+
+echo "AOSP_LIBCORE_INTEGRITY = PASS"
+
 repo manifest -r -o "$ROOT/config/aosp-pinned-manifest.xml"
 
 echo "AOSP_SYNC = PASS"
