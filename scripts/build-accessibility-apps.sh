@@ -117,6 +117,29 @@ rm -f \
 build_talkback() {
   echo "==> Build TalkBack from pinned source"
   cd "$SRC_ROOT/talkback"
+
+  # ACCESSIBLEANDROID_TALKBACK_JVM17_ROOT_PATCH
+  # Restore pinned upstream source before applying our reproducible build-only patch.
+  git reset --hard "$TALKBACK_REV" >/dev/null
+
+  if ! grep -Fq 'ACCESSIBLEANDROID_KOTLIN_JVM17_SUBPROJECTS' build.gradle; then
+    cat >> build.gradle <<'GRADLEPATCH'
+
+// ACCESSIBLEANDROID_KOTLIN_JVM17_SUBPROJECTS
+// Java already targets 17 in shared.gradle. Keep Kotlin aligned on JDK 21 hosts.
+subprojects {
+    pluginManager.withPlugin("org.jetbrains.kotlin.android") {
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+}
+GRADLEPATCH
+  fi
+
+  echo "TALKBACK_KOTLIN_JVM_TARGET = 17"
   ANDROID_SDK="$SDK_ROOT" GRADLE_DEBUG='' GRADLE_STACKTRACE='' bash ./build.sh
 
   local apk
