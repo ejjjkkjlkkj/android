@@ -1,3 +1,4 @@
+# Revalidate after AccessKit live-region semantic correction.
 name: AccessibleUTM Windows
 
 on:
