@@ -1,0 +1,56 @@
+name: Android Builder Probe
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - '.github/workflows/android-builder-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe Debian Android build runner
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout without deleting persistent workspace
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+
+      - name: Inspect builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RUNNER_NAME=${RUNNER_NAME}"
+          echo "RUNNER_OS=${RUNNER_OS}"
+          echo "RUNNER_ARCH=${RUNNER_ARCH}"
+          echo "KERNEL=$(uname -srmo)"
+          echo "CPU_COUNT=$(nproc)"
+          awk '/MemTotal:/ {printf "RAM_GIB=%.1f\n", $2/1024/1024}' /proc/meminfo
+          df -BG . | awk 'NR==2 {gsub(/G/,"",$4); print "FREE_DISK_GIB="$4}'
+          if [[ -d .work/aosp/.repo ]]; then
+            echo 'AOSP_WORKSPACE=incremental'
+          else
+            echo 'AOSP_WORKSPACE=fresh'
+          fi
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo 'KVM=available'
+          else
+            echo 'KVM=unavailable'
+          fi
+          for tool in repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "TOOL_${tool//-/_}=PASS"
+            else
+              echo "TOOL_${tool//-/_}=MISSING"
+            fi
+          done
+          if command -v repo >/dev/null 2>&1 && [[ -d .work/aosp/.repo ]]; then
+            cd .work/aosp
+            echo "AOSP_MANIFEST_BRANCH=$(repo manifest -r 2>/dev/null | sed -n 's/.*revision="\([^"]*\)".*/\1/p' | head -n1 || true)"
+            cd - >/dev/null
+          fi
