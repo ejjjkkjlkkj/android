@@ -42,17 +42,27 @@ BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00/0000:00:06.0
 KERNEL_MODULE_DIR := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/modules
 KERNEL_MODULES := $(wildcard $(KERNEL_MODULE_DIR)/*.ko)
 
-# Keep first-stage init small: only modules required to discover the virtio
-# system disk and provide entropy are copied to vendor_boot. Modern virtio PCI
-# support is part of virtio_pci.ko; Android 17 does not emit a separate
-# virtio_pci_modern_dev.ko module.
-ACCESSIBLE_FIRST_STAGE_MODULE_NAMES := \
+# Keep first-stage init small. These top-level modules are required to discover
+# the virtio system disk and provide entropy on every supported kernel dist.
+ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES := \
     virtio_pci.ko \
     virtio_blk.ko \
     virtio-rng.ko
-ACCESSIBLE_FIRST_STAGE_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
+
+# Kernel packaging can expose the modern/legacy PCI helpers as separate modules
+# or fold their functionality into the transport. Copy either helper into
+# vendor_boot when it exists so depmod can satisfy virtio_pci dependencies, but
+# do not make either helper a hard build requirement.
+ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES := \
+    virtio_pci_modern_dev.ko \
+    virtio_pci_legacy_dev.ko
+ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES := \
+    $(ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES) \
+    $(ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES)
+ACCESSIBLE_FIRST_STAGE_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
+ACCESSIBLE_FIRST_STAGE_LOAD_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
 BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(ACCESSIBLE_FIRST_STAGE_MODULES)
-BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_MODULES)
+BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_LOAD_MODULES)
 
 # Keep the complete module set available after /vendor is mounted. Limit the
 # automatic second-stage list to the VM devices needed by the initial product.
