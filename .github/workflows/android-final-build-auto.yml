@@ -1,0 +1,176 @@
+name: AccessibleAndroid 17 Final Build Auto
+
+on:
+  push:
+    branches:
+      - accessible-virtual-suite
+    paths:
+      - '.github/workflows/android-final-build-auto.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-android17-final-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  final-build:
+    name: Build and prove AccessibleAndroid 17 final images
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 720
+    steps:
+      - name: Checkout without deleting persistent AOSP workspace
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 1
+
+      - name: Select conservative build parallelism and inspect host
+        shell: bash
+        run: |
+          set -euo pipefail
+          ram_kib=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+          ram_gib=$((ram_kib / 1024 / 1024))
+          cpus=$(nproc)
+          free_gib=$(df -Pk . | awk 'NR==2 {print int($4 / 1024 / 1024)}')
+
+          if (( ram_gib < 16 )); then
+            jobs=2
+          elif (( ram_gib < 32 )); then
+            jobs=4
+          elif (( ram_gib < 64 )); then
+            jobs=6
+          else
+            jobs=12
+          fi
+          (( jobs > cpus )) && jobs=$cpus
+          (( jobs < 1 )) && jobs=1
+
+          sync_jobs=$jobs
+          (( sync_jobs > 8 )) && sync_jobs=8
+          kernel_jobs=$jobs
+          (( kernel_jobs > 4 )) && kernel_jobs=4
+
+          echo "ANDROID_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "SYNC_JOBS=$sync_jobs" >> "$GITHUB_ENV"
+          echo "KERNEL_SYNC_JOBS=$kernel_jobs" >> "$GITHUB_ENV"
+          echo 'SYNC_RETRIES=5' >> "$GITHUB_ENV"
+          echo 'SYNC_RETRY_DELAY_SECONDS=10' >> "$GITHUB_ENV"
+          echo 'REUSE_KERNEL_DIST=1' >> "$GITHUB_ENV"
+          echo 'REUSE_ACCESSIBILITY_APPS=1' >> "$GITHUB_ENV"
+          echo 'BOOT_TIMEOUT_SECONDS=360' >> "$GITHUB_ENV"
+
+          echo "RUNNER_NAME=${RUNNER_NAME}"
+          echo "RAM_GIB=$ram_gib"
+          echo "CPU_COUNT=$cpus"
+          echo "FREE_DISK_GIB=$free_gib"
+          echo "ANDROID_BUILD_JOBS=$jobs"
+          echo "SYNC_JOBS=$sync_jobs"
+          echo "KERNEL_SYNC_JOBS=$kernel_jobs"
+          if [[ -d .work/aosp/.repo ]]; then
+            echo 'AOSP_WORKSPACE=incremental'
+          else
+            echo 'AOSP_WORKSPACE=fresh'
+          fi
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo 'QEMU_ACCEL=kvm' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL=kvm'
+          else
+            echo 'QEMU_ACCEL=tcg' >> "$GITHUB_ENV"
+            echo 'QEMU_ACCEL=tcg'
+          fi
+
+      - name: Verify required host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4)
+          missing=0
+          for command_name in "${required[@]}"; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              printf '%-24s %s\n' "$command_name" "$(command -v "$command_name")"
+            else
+              echo "MISSING: $command_name" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          if (( EUID != 0 )); then
+            sudo -n true
+          fi
+
+      - name: Resume synchronized Android 17 sources and build accessibility edition
+        shell: bash
+        env:
+          BOOTSTRAP_HOST: '0'
+          BOOTSTRAP_SDK: '1'
+          BUILD_KERNEL: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs
+          bash scripts/build-from-zero.sh accessible-aosp 2>&1 | tee .work/logs/final-build-from-zero.txt
+
+      - name: Build final BIOS and UEFI GPT disk in all formats
+        shell: bash
+        env:
+          EXPORT_ALL_FORMATS: '1'
+        run: |
+          set -euo pipefail
+          bash scripts/build-preinstalled-disk.sh 2>&1 | tee .work/logs/final-build-preinstalled-disk.txt
+
+      - name: Prove full VM boot in BIOS and UEFI
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_MODE=all HARDWARE_PROFILE=full bash scripts/test-preinstalled-disk-qemu.sh 2>&1 | tee .work/logs/final-preinstalled-qemu-proof.txt
+
+      - name: Generate final evidence manifest
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/final-evidence
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "runner=${RUNNER_NAME}"
+            echo "qemu_accel=${QEMU_ACCEL:-unknown}"
+            echo "android_build_jobs=${ANDROID_BUILD_JOBS:-unknown}"
+            echo "sync_jobs=${SYNC_JOBS:-unknown}"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > .work/final-evidence/BUILD-INFO.txt
+          find .work/vm -maxdepth 3 -type f \( -name '*.iso' -o -name '*.qcow2' -o -name '*.vdi' -o -name '*.vmdk' -o -name 'SHA256SUMS' -o -name '*MANIFEST*' \) -print | sort > .work/final-evidence/FILES.txt || true
+          while IFS= read -r file; do
+            [[ -f "$file" ]] && sha256sum "$file"
+          done < .work/final-evidence/FILES.txt > .work/final-evidence/SHA256SUMS.txt
+
+      - name: Upload final validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-final-evidence-${{ github.run_id }}
+          path: |
+            .work/logs/**
+            .work/final-evidence/**
+            .work/vm/preinstalled/DISK-MANIFEST.txt
+            .work/vm/preinstalled/GPT.txt
+            .work/vm/preinstalled/SHA256SUMS
+            config/aosp-pinned-manifest.xml
+            config/kernel-pinned-manifest.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload final VM images
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-final-images-${{ github.run_id }}
+          path: |
+            .work/vm/**/*.iso
+            .work/vm/**/*.qcow2
+            .work/vm/**/*.vdi
+            .work/vm/**/*.vmdk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
