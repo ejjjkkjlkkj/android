@@ -1,0 +1,192 @@
+name: AccessibleAndroid post-recovery final gate
+
+on:
+  workflow_run:
+    workflows:
+      - Recover unpushed runner commit 865b6ca
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessibleandroid-post-recovery-final-gate
+  cancel-in-progress: false
+
+jobs:
+  final-android-gate:
+    name: Build latest PR head and prove BIOS plus UEFI boot
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 720
+    env:
+      TARGET_REF: fix/queue-android-final-builds-20260913
+      BOOT_TIMEOUT_SECONDS: '360'
+      SYNC_RETRIES: '5'
+      SYNC_RETRY_DELAY_SECONDS: '10'
+      REUSE_KERNEL_DIST: '1'
+      REUSE_ACCESSIBILITY_APPS: '1'
+
+    steps:
+      - name: Checkout latest Android gate source without deleting persistent workspace
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: fix/queue-android-final-builds-20260913
+          fetch-depth: 0
+          clean: false
+          persist-credentials: false
+
+      - name: Record exact source and select conservative parallelism
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          ram_kib="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
+          ram_gib=$((ram_kib / 1024 / 1024))
+          cpus="$(nproc)"
+
+          if (( ram_gib < 16 )); then
+            jobs=2
+          elif (( ram_gib < 32 )); then
+            jobs=4
+          elif (( ram_gib < 64 )); then
+            jobs=6
+          else
+            jobs=12
+          fi
+          (( jobs > cpus )) && jobs=$cpus
+          (( jobs < 1 )) && jobs=1
+
+          sync_jobs=$jobs
+          (( sync_jobs > 8 )) && sync_jobs=8
+          kernel_jobs=$jobs
+          (( kernel_jobs > 4 )) && kernel_jobs=4
+
+          echo "BUILD_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "SYNC_JOBS=$sync_jobs" >> "$GITHUB_ENV"
+          echo "KERNEL_SYNC_JOBS=$kernel_jobs" >> "$GITHUB_ENV"
+
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo 'QEMU_ACCEL=kvm' >> "$GITHUB_ENV"
+          else
+            echo 'QEMU_ACCEL=tcg' >> "$GITHUB_ENV"
+          fi
+
+          echo "TARGET_REF=$TARGET_REF"
+          echo "BUILD_SOURCE_SHA=$source_sha"
+          echo "RAM_GIB=$ram_gib"
+          echo "CPU_COUNT=$cpus"
+          echo "ANDROID_BUILD_JOBS=$jobs"
+          echo "SYNC_JOBS=$sync_jobs"
+          echo "KERNEL_SYNC_JOBS=$kernel_jobs"
+
+      - name: Refuse an overlapping Android build
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(pgrep -af '(^|/)(siso|ninja)( |$)|soong_ui|soong_build' || true)"
+          if [[ -n "$active" ]]; then
+            echo "$active"
+            echo 'ERROR: another Android build is active on this runner.' >&2
+            exit 1
+          fi
+          echo 'NO_OVERLAPPING_ANDROID_BUILD = PASS'
+
+      - name: Verify host build and VM tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4)
+          missing=0
+          for command_name in "${required[@]}"; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              printf '%-24s %s\n' "$command_name" "$(command -v "$command_name")"
+            else
+              echo "MISSING: $command_name" >&2
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+          if (( EUID != 0 )); then
+            sudo -n true
+          fi
+          echo 'FINAL_GATE_HOST_TOOLS = PASS'
+
+      - name: Build latest AccessibleAndroid 17 AOSP source
+        shell: bash
+        env:
+          BOOTSTRAP_HOST: '0'
+          BOOTSTRAP_SDK: '1'
+          BUILD_KERNEL: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p .work/logs
+          bash scripts/build-from-zero.sh accessible-aosp 2>&1 | tee .work/logs/post-recovery-final-aosp.txt
+
+      - name: Build deterministic BIOS and UEFI preinstalled disk
+        shell: bash
+        env:
+          EXPORT_ALL_FORMATS: '0'
+        run: |
+          set -euo pipefail
+          bash scripts/build-preinstalled-disk.sh 2>&1 | tee .work/logs/post-recovery-final-disk.txt
+
+      - name: Prove Android boot in BIOS and UEFI with full VM hardware
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_MODE=all HARDWARE_PROFILE=full bash scripts/test-preinstalled-disk-qemu.sh 2>&1 | tee .work/logs/post-recovery-final-qemu.txt
+
+      - name: Verify final QCOW2 and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t images < <(find .work/vm/preinstalled -maxdepth 1 -type f -name '*.qcow2' | sort)
+          test "${#images[@]}" -ge 1
+          image="${images[0]}"
+          qemu-img check "$image" | tee .work/logs/post-recovery-final-qcow2-check.txt
+          sha256sum "$image" | tee .work/logs/post-recovery-final-qcow2.sha256
+          echo "FINAL_QCOW2=$image" >> "$GITHUB_ENV"
+          echo 'FINAL_QCOW2 = VERIFIED PASS'
+
+      - name: Record final Android gate provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .work/final-evidence
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "target_ref=${TARGET_REF}"
+            echo "build_source_sha=${BUILD_SOURCE_SHA:-unknown}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "runner=${RUNNER_NAME}"
+            echo "qemu_accel=${QEMU_ACCEL:-unknown}"
+            echo "android_build_jobs=${ANDROID_BUILD_JOBS:-unknown}"
+            echo "sync_jobs=${SYNC_JOBS:-unknown}"
+            echo "kernel_sync_jobs=${KERNEL_SYNC_JOBS:-unknown}"
+            echo "final_qcow2=${FINAL_QCOW2:-unknown}"
+            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > .work/final-evidence/POST-RECOVERY-ANDROID-GATE.txt
+
+      - name: Upload final Android gate evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-post-recovery-final-gate-${{ github.run_id }}
+          path: |
+            .work/logs/post-recovery-final-*.txt
+            .work/logs/post-recovery-final-*.sha256
+            .work/final-evidence/POST-RECOVERY-ANDROID-GATE.txt
+            .work/vm/preinstalled/DISK-MANIFEST.txt
+            .work/vm/preinstalled/GPT.txt
+            .work/vm/preinstalled/SHA256SUMS
+            config/aosp-pinned-manifest.xml
+            config/kernel-pinned-manifest.xml
+          if-no-files-found: warn
+          retention-days: 30
