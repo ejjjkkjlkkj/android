@@ -13,14 +13,15 @@ permissions:
 
 concurrency:
   group: accessibleandroid-recovery-resume-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recover-build-test:
-    name: Recover runner state, build Android 17, and validate boot
+    name: Recover runner state, build latest Android 17 work, and validate boot
     runs-on: [self-hosted, Linux, X64, android-build]
     timeout-minutes: 720
     env:
+      TARGET_REF: 'fix/queue-android-final-builds-20260913'
       ANDROID_BUILD_JOBS: '4'
       KERNEL_SYNC_JOBS: '4'
       SYNC_JOBS: '4'
@@ -50,13 +51,22 @@ jobs:
             echo 'No existing Git checkout was present.'
           fi
 
-      - name: Checkout GitHub main without deleting persistent workspaces
+      - name: Checkout latest GitHub Android work without deleting persistent workspaces
         uses: actions/checkout@v7.0.1
         with:
-          ref: main
+          ref: fix/queue-android-final-builds-20260913
           fetch-depth: 0
           clean: false
           persist-credentials: true
+
+      - name: Record selected build source
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_source_sha="$(git rev-parse HEAD)"
+          echo "BUILD_SOURCE_SHA=$build_source_sha" >> "$GITHUB_ENV"
+          echo "TARGET_REF=$TARGET_REF"
+          echo "BUILD_SOURCE_SHA=$build_source_sha"
 
       - name: Publish divergent pre-checkout commit as recovery branch
         shell: bash
@@ -73,7 +83,7 @@ jobs:
           fi
           current="$(git rev-parse HEAD)"
           if [[ "$pre_head" == "$current" ]]; then
-            echo 'Runner checkout already matched GitHub main.'
+            echo 'Runner checkout already matched selected GitHub source.'
             exit 0
           fi
           branch="recovery/runner-local-${GITHUB_RUN_ID}"
@@ -88,6 +98,8 @@ jobs:
           echo "RUNNER_NAME=$RUNNER_NAME"
           echo "RUNNER_OS=$RUNNER_OS"
           echo "RUNNER_ARCH=$RUNNER_ARCH"
+          echo "TARGET_REF=$TARGET_REF"
+          echo "BUILD_SOURCE_SHA=${BUILD_SOURCE_SHA:-unknown}"
           uname -a
           nproc
           free -h || true
@@ -175,7 +187,9 @@ jobs:
           mkdir -p .work/logs
           {
             echo "repository=${GITHUB_REPOSITORY}"
-            echo "github_commit=${GITHUB_SHA}"
+            echo "trigger_commit=${GITHUB_SHA}"
+            echo "target_ref=${TARGET_REF}"
+            echo "build_source_sha=${BUILD_SOURCE_SHA:-unknown}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "runner_name=${RUNNER_NAME}"
             echo "runner_os=${RUNNER_OS}"
@@ -195,7 +209,9 @@ jobs:
           {
             echo '## AccessibleAndroid recovery and resume'
             echo
-            echo "GitHub commit: ${GITHUB_SHA}"
+            echo "Trigger commit: ${GITHUB_SHA}"
+            echo "Target ref: ${TARGET_REF}"
+            echo "Build source: ${BUILD_SOURCE_SHA:-unknown}"
             echo "Pre-checkout runner commit: ${PRE_CHECKOUT_HEAD:-none}"
             echo "Recovery branch: ${RECOVERY_BRANCH:-none}"
             echo "QEMU acceleration: ${QEMU_ACCEL:-unknown}"
