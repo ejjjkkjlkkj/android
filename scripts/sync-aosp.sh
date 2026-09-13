@@ -67,18 +67,23 @@ done
 # worktree is complete after an interrupted checkout. Detect only tracked files
 # that are missing and unresolved index entries; deliberately ignore untracked
 # AccessibleAndroid files so the persistent workspace remains non-destructive.
-mapfile -t damaged_projects < <(
-  # The single quotes are intentional: REPO_PATH and the git commands must be
-  # evaluated inside each shell spawned by `repo forall`, not by this script.
-  # shellcheck disable=SC2016
-  repo forall -c '
-    missing="$(git ls-files -d)"
-    unmerged="$(git ls-files -u)"
-    if test -n "$missing" || test -n "$unmerged"; then
-      printf "%s\n" "$REPO_PATH"
-    fi
-  ' | sed '/^[[:space:]]*$/d' | sort -u
-)
+scan_file="$(mktemp)"
+# The single quotes are intentional: REPO_PATH and the git commands must be
+# evaluated inside each shell spawned by `repo forall`, not by this script.
+# shellcheck disable=SC2016
+if ! repo forall -c '
+  missing="$(git ls-files -d)"
+  unmerged="$(git ls-files -u)"
+  if test -n "$missing" || test -n "$unmerged"; then
+    printf "%s\n" "$REPO_PATH"
+  fi
+' > "$scan_file"; then
+  rm -f "$scan_file"
+  echo "ERROR: failed to scan AOSP tracked worktree integrity" >&2
+  exit 1
+fi
+mapfile -t damaged_projects < <(sed '/^[[:space:]]*$/d' "$scan_file" | sort -u)
+rm -f "$scan_file"
 
 if (( ${#damaged_projects[@]} > 0 )); then
   echo "AOSP_WORKTREE_REPAIR_COUNT = ${#damaged_projects[@]}"
