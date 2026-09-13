@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$QemuDirectory,
 
+    [string]$AndroidImage = '',
+
     [string]$OutputDirectory = 'accessible-utm/dist',
 
     [long]$SourceDateEpoch = 0
@@ -17,6 +19,10 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $exePath = (Resolve-Path -LiteralPath $Executable).Path
 $qemuSource = (Resolve-Path -LiteralPath $QemuDirectory).Path
 $output = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
+$androidImageSource = $null
+if (-not [string]::IsNullOrWhiteSpace($AndroidImage)) {
+    $androidImageSource = (Resolve-Path -LiteralPath $AndroidImage).Path
+}
 
 function Get-GitText {
     param([string[]]$Arguments)
@@ -89,6 +95,19 @@ Copy-Item -LiteralPath $exePath -Destination (Join-Path $stage 'AccessibleUTM.ex
 Copy-Item -LiteralPath (Join-Path $repoRoot 'accessible-utm\README.md') -Destination (Join-Path $stage 'README.md')
 Copy-Item -LiteralPath $qemuSource -Destination (Join-Path $stage 'qemu') -Recurse -Force
 
+$androidImageIncluded = $false
+$androidImageSha256 = $null
+if ($null -ne $androidImageSource) {
+    Require-File -Path $androidImageSource -Label 'AccessibleAndroid image'
+    $imagesDir = Join-Path $stage 'images'
+    New-Item -ItemType Directory -Path $imagesDir -Force | Out-Null
+    $imageDestination = Join-Path $imagesDir 'AccessibleAndroid.qcow2'
+    Copy-Item -LiteralPath $androidImageSource -Destination $imageDestination
+    $androidImageIncluded = $true
+    $androidImageSha256 = (Get-FileHash -LiteralPath $imageDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Host "ACCESSIBLE_ANDROID_IMAGE_SHA256 = $androidImageSha256"
+}
+
 $launcher = @'
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -120,6 +139,10 @@ foreach ($relative in $required) {
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-x86_64.exe') --version | Select-Object -First 1
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-aarch64.exe') --version | Select-Object -First 1
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-riscv64.exe') --version | Select-Object -First 1
+$image = Join-Path $PSScriptRoot 'images\AccessibleAndroid.qcow2'
+if (Test-Path -LiteralPath $image -PathType Leaf) {
+  Write-Host "PASS images\AccessibleAndroid.qcow2"
+}
 Write-Host 'ACCESSIBLE_UTM_PORTABLE_RUNTIME = PASS'
 '@
 Set-Content -LiteralPath (Join-Path $stage 'Verify-Runtime.ps1') -Value $verifyRuntime -Encoding UTF8
@@ -134,6 +157,7 @@ Pinned installer used by CI: qemu-w64-setup-20260811.exe
 QEMU is free/open-source software. The original QEMU license and notice files distributed with the runtime remain inside the qemu directory.
 
 This package is designed to run without installing QEMU globally and without modifying PATH.
+When images\AccessibleAndroid.qcow2 is included, AccessibleUTM discovers it automatically at startup.
 "@
 Set-Content -LiteralPath (Join-Path $stage 'THIRD-PARTY-NOTICES.txt') -Value $notices -Encoding UTF8
 
@@ -149,6 +173,9 @@ $manifest = [ordered]@{
     qemu_runtime = 'bundled'
     qemu_installer = 'qemu-w64-setup-20260811.exe'
     qemu_installer_sha512 = '5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543'
+    android_image_included = $androidImageIncluded
+    android_image_sha256 = $androidImageSha256
+    android_image_path = if ($androidImageIncluded) { 'images/AccessibleAndroid.qcow2' } else { $null }
     source_branch = $sourceBranch
     source_commit = $sourceCommit
     source_date_epoch = $SourceDateEpoch
@@ -200,6 +227,7 @@ Write-Host 'ACCESSIBLE_UTM_PORTABLE_PACKAGE = PASS'
 Write-Host 'ACCESSIBLE_UTM_BUNDLED_QEMU = PASS'
 Write-Host 'ACCESSIBLE_UTM_PACKAGE_REPRODUCIBLE_INPUTS = PASS'
 Write-Host "QEMU_VERSION = $qemuVersion"
+Write-Host "ANDROID_IMAGE_INCLUDED = $androidImageIncluded"
 Write-Host "PACKAGE_SOURCE_DATE_EPOCH = $SourceDateEpoch"
 Write-Host "PACKAGE_ZIP = $zip"
 Write-Host "PACKAGE_SHA256 = $zipHash"
