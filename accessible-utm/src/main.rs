@@ -761,11 +761,15 @@ mod tests {
         harness.run();
 
         assert_eq!(harness.state().status, "QEMU command printed to stdout.");
-        assert!(
-            harness
-                .query_by_label("QEMU command printed to stdout.")
-                .is_some(),
-            "Updated status is missing from the AccessKit tree"
-        );
+        let status_node = harness.get_by_label("QEMU command printed to stdout.");
+assert_eq!(
+    status_node.accesskit_node().live(),
+    egui::accesskit::Live::Polite,
+    "Updated status must be a polite AccessKit live region"
+);
+assert!(
+    status_node.accesskit_node().is_live_atomic(),
+    "Updated status live region must be atomic"
+);
     }
 }
