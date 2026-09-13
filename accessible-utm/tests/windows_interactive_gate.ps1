@@ -44,8 +44,11 @@ if (-not (Test-Path -LiteralPath $exe)) {
 }
 
 Write-Host '== UI AUTOMATION + KEYBOARD =='
+# windows_uia_smoke.ps1 is a PowerShell script, not a native executable.
+# With Set-StrictMode, $LASTEXITCODE may be undefined after a successful
+# PowerShell-only invocation. Errors from the smoke script already terminate
+# this gate because $ErrorActionPreference = 'Stop'.
 & (Join-Path $PSScriptRoot 'windows_uia_smoke.ps1') -Executable $exe -EvidenceDirectory $output
-if ($LASTEXITCODE -ne 0) { throw "UIA smoke test failed with exit code $LASTEXITCODE" }
 
 $screenReaderDefinitions = @(
     [pscustomobject]@{ Name = 'NVDA'; ProcessNames = @('nvda') },
