@@ -1,3 +1,4 @@
+use crate::embedded;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -105,6 +106,9 @@ pub struct VmConfig {
 }
 
 fn application_directory() -> Option<PathBuf> {
+    if let Some(root) = embedded::runtime_root() {
+        return Some(root);
+    }
     env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
 
