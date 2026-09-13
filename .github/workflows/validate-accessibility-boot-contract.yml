@@ -1,0 +1,74 @@
+name: Validate accessibility boot contract
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  accessibility-boot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify TalkBack and offline TTS first-boot contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source config/accessibility-upstreams.env
+
+          product=vendor/accessibledroid/product/accessibility.mk
+          bootstrap=vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
+          manifest=vendor/accessibledroid/bootstrap/AndroidManifest.xml
+          imported=vendor/accessibledroid/generated-apps/Android.bp
+          probe=device/accessibledroid/accessible_x86_64/accessible-vm-hardware-probe.sh
+          initrc=device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
+          builder=scripts/build-accessibility-apps.sh
+
+          test "$TALKBACK_PACKAGE" = 'com.android.talkback'
+          test "$TALKBACK_SERVICE" = 'com.android.talkback/com.google.android.marvin.talkback.TalkBackService'
+          test "$ESPEAK_PACKAGE" = 'com.reecedunn.espeak'
+          test -n "$TALKBACK_REV"
+          test -n "$ESPEAK_NG_REV"
+
+          grep -Fq 'AccessibilityBootstrap' "$product"
+          grep -Fq 'AccessibleTalkBack' "$product"
+          grep -Fq 'AccessibleEspeakTts' "$product"
+
+          grep -Fq 'name: "AccessibilityBootstrap"' vendor/accessibledroid/bootstrap/Android.bp
+          grep -Fq 'certificate: "platform"' vendor/accessibledroid/bootstrap/Android.bp
+          grep -Fq 'privileged: true' vendor/accessibledroid/bootstrap/Android.bp
+          grep -Fq 'android.permission.RECEIVE_BOOT_COMPLETED' "$manifest"
+          grep -Fq 'android.permission.WRITE_SECURE_SETTINGS' "$manifest"
+          grep -Fq 'android.intent.action.LOCKED_BOOT_COMPLETED' "$manifest"
+          grep -Fq 'android.intent.action.BOOT_COMPLETED' "$manifest"
+
+          grep -Fq 'private static final String TALKBACK_PACKAGE = "com.android.talkback";' "$bootstrap"
+          grep -Fq 'private static final String TALKBACK_CLASS = "com.google.android.marvin.talkback.TalkBackService";' "$bootstrap"
+          grep -Fq 'private static final String ESPEAK_PACKAGE = "com.reecedunn.espeak";' "$bootstrap"
+          grep -Fq 'Settings.Secure.ACCESSIBILITY_ENABLED' "$bootstrap"
+          grep -Fq 'Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES' "$bootstrap"
+          grep -Fq 'Settings.Secure.putString(resolver, TTS_DEFAULT_SYNTH, ESPEAK_PACKAGE);' "$bootstrap"
+
+          grep -Fq 'name: "AccessibleTalkBack"' "$imported"
+          grep -Fq 'name: "AccessibleEspeakTts"' "$imported"
+          grep -Fq 'apk: "talkback.apk"' "$imported"
+          grep -Fq 'apk: "espeak-ng.apk"' "$imported"
+
+          grep -Fq 'TALKBACK_PACKAGE=com.android.talkback' "$probe"
+          grep -Fq 'TALKBACK_COMPONENT=com.android.talkback/com.google.android.marvin.talkback.TalkBackService' "$probe"
+          grep -Fq 'ESPEAK_PACKAGE=com.reecedunn.espeak' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_ACCESSIBILITY_STACK=PASS' "$probe"
+          grep -Fq 'ACCESSIBLE_ANDROID_GUEST_HARDWARE=PASS' "$probe"
+          grep -Fq 'exec_background u:r:su:s0 -- /system/bin/sh /vendor/etc/accessible-vm-hardware-probe.sh' "$initrc"
+
+          grep -Fq '[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]]' "$builder"
+          grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$builder"
+          grep -Fq 'android.intent.action.TTS_SERVICE' "$builder"
+
+          echo "TALKBACK_REV=$TALKBACK_REV"
+          echo "ESPEAK_NG_REV=$ESPEAK_NG_REV"
+          echo 'ACCESSIBILITY_FIRST_BOOT_CONTRACT = PASS'
