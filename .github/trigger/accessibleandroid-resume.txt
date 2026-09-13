@@ -1,0 +1,3 @@
+Trigger the self-hosted AccessibleAndroid recovery/resume workflow.
+Requested: 2026-09-13
+Purpose: preserve divergent runner work, resume AOSP Android 17 build, build the preinstalled disk, and validate BIOS/UEFI boot.
