@@ -30,6 +30,8 @@ jobs:
   build-windows:
     name: Build self-contained AccessibleUTM on Windows x64
     runs-on: windows-2025
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -39,6 +41,8 @@ jobs:
         run: |
           rustc -vV
           cargo -V
+          rustc --print cfg -C target-feature=+crt-static | Select-String 'target_feature="crt-static"'
+          if ($LASTEXITCODE -ne 0) { throw 'Rust static CRT target feature is unavailable.' }
 
       - name: Cache Cargo registry and release target
         uses: actions/cache@v6
@@ -47,9 +51,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             accessible-utm/target
-          key: accessible-utm-${{ runner.os }}-${{ hashFiles('accessible-utm/Cargo.toml', 'accessible-utm/Cargo.lock') }}
+          key: accessible-utm-crt-static-${{ runner.os }}-${{ hashFiles('accessible-utm/Cargo.toml', 'accessible-utm/Cargo.lock') }}
           restore-keys: |
-            accessible-utm-${{ runner.os }}-
+            accessible-utm-crt-static-${{ runner.os }}-
           save-always: true
 
       - name: Parse AccessibleAndroid launcher
@@ -88,21 +92,38 @@ jobs:
         shell: pwsh
         run: cargo build --release --locked --manifest-path accessible-utm/Cargo.toml
 
+      - name: Prove Microsoft VC runtime is statically linked
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'accessible-utm/target/release/accessible-utm.exe').Path
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw "Missing vswhere: $vswhere" }
+          $vs = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Out-String).Trim()
+          if ([string]::IsNullOrWhiteSpace($vs)) { throw 'Visual Studio C++ tools were not found.' }
+          $dumpbin = Get-ChildItem -Path (Join-Path $vs 'VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe') -File | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $dumpbin) { throw 'dumpbin.exe was not found.' }
+          $deps = (& $dumpbin.FullName /DEPENDENTS $exe | Out-String)
+          Write-Host $deps
+          $forbidden = @('VCRUNTIME140.dll', 'VCRUNTIME140_1.dll', 'MSVCP140.dll', 'MSVCP140_1.dll', 'MSVCP140_2.dll')
+          foreach ($dll in $forbidden) {
+            if ($deps -match [regex]::Escape($dll)) {
+              throw "Portable AccessibleUTM still depends on external Microsoft VC runtime: $dll"
+            }
+          }
+          Write-Host 'ACCESSIBLE_UTM_STATIC_CRT = PASS'
+
       - name: Verify CLI and AccessibleAndroid x86 contract
         shell: pwsh
         run: |
           $exe = 'accessible-utm/target/release/accessible-utm.exe'
           if (-not (Test-Path $exe)) { throw "Missing $exe" }
-
           $help = (& $exe --help | Out-String)
           if ($LASTEXITCODE -ne 0) { throw "AccessibleUTM --help failed: $LASTEXITCODE" }
           if ($help -notmatch 'AccessibleUTM Windows' -or $help -notmatch '--arch' -or $help -notmatch '--profile' -or $help -notmatch '--config') {
             throw 'AccessibleUTM help is missing required multi-architecture/profile/config controls.'
           }
-
           $version = (& $exe --version | Out-String).Trim()
           if ($version -ne 'AccessibleUTM 0.1.0') { throw "Unexpected version: $version" }
-
           $android = (& $exe --profile accessible-android --arch x86_64 --disk AccessibleAndroid.qcow2 --firmware OVMF_CODE.fd --print-qemu-command | Out-String)
           $requiredAndroid = @(
             'qemu-system-x86_64',
@@ -122,7 +143,6 @@ jobs:
           foreach ($needle in $requiredAndroid) {
             if ($android -notlike "*$needle*") { throw "Android contract missing '$needle'`n$android" }
           }
-
           $forbiddenAndroidPatterns = @(
             '(?<!\S)-vga\s+virtio(?:\s|$)',
             '(?<!\S)-audio(?:\s|$)',
@@ -131,7 +151,6 @@ jobs:
           foreach ($pattern in $forbiddenAndroidPatterns) {
             if ($android -match $pattern) { throw "Deprecated Android QEMU syntax matched '$pattern'`n$android" }
           }
-
           Write-Host 'ACCESSIBLE_UTM_ANDROID_VM_CONTRACT = PASS'
 
       - name: Verify ARM64 and RISC-V command generation
@@ -142,7 +161,6 @@ jobs:
           if ($arm -notlike '*qemu-system-aarch64*') { throw "ARM64 QEMU executable missing.`n$arm" }
           if ($arm -notlike '*virt,accel=tcg*') { throw "ARM64 virt/TCG machine missing.`n$arm" }
           if ($arm -like '*addr=0x6*') { throw "ARM64 generic VM must not inherit Android x86 PCI pinning.`n$arm" }
-
           $riscv = (& $exe --profile linux --arch riscv64 --disk linux-riscv64.qcow2 --print-qemu-command | Out-String)
           if ($riscv -notlike '*qemu-system-riscv64*') { throw "RISC-V QEMU executable missing.`n$riscv" }
           if ($riscv -notlike '*virt,accel=tcg*') { throw "RISC-V virt/TCG machine missing.`n$riscv" }
@@ -173,8 +191,7 @@ jobs:
         id: hosted_uia
         continue-on-error: true
         shell: pwsh
-        run: |
-          ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
+        run: ./accessible-utm/tests/windows_uia_smoke.ps1 -Executable 'accessible-utm/target/release/accessible-utm.exe'
 
       - name: Classify hosted UI Automation result
         shell: pwsh
@@ -195,18 +212,13 @@ jobs:
           $installer = Join-Path $env:RUNNER_TEMP 'qemu-w64-setup-20260811.exe'
           $qemuDir = Join-Path $env:RUNNER_TEMP 'qemu-portable'
           Remove-Item -LiteralPath $qemuDir -Recurse -Force -ErrorAction SilentlyContinue
-
           Invoke-WebRequest -Uri $url -OutFile $installer
           $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {
-            throw "QEMU installer SHA-512 mismatch: $actual"
-          }
+          if ($actual -ne $expected) { throw "QEMU installer SHA-512 mismatch: $actual" }
           Write-Host 'QEMU_INSTALLER_SHA512 = VERIFIED'
-
           $arguments = @('/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', "/DIR=$qemuDir")
           $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "QEMU installer failed: $($process.ExitCode)" }
-
           $required = @('qemu-system-x86_64.exe','qemu-system-aarch64.exe','qemu-system-riscv64.exe','qemu-img.exe')
           foreach ($name in $required) {
             $path = Join-Path $qemuDir $name
@@ -223,21 +235,15 @@ jobs:
         run: |
           $exe = 'accessible-utm/target/release/accessible-utm.exe'
           $env:SOURCE_DATE_EPOCH = (& git show -s --format=%ct HEAD | Out-String).Trim()
-          if ($env:SOURCE_DATE_EPOCH -notmatch '^\d+$') {
-            throw "Invalid SOURCE_DATE_EPOCH: $env:SOURCE_DATE_EPOCH"
-          }
-
+          if ($env:SOURCE_DATE_EPOCH -notmatch '^\d+$') { throw "Invalid SOURCE_DATE_EPOCH: $env:SOURCE_DATE_EPOCH" }
           ./accessible-utm/scripts/package-windows.ps1 -Executable $exe -QemuDirectory $env:QEMU_PORTABLE_DIR
           $zip = Get-ChildItem 'accessible-utm/dist/AccessibleUTM-*-windows-x64-portable.zip' | Select-Object -First 1
           if ($null -eq $zip) { throw 'AccessibleUTM portable ZIP was not generated.' }
           $hash1 = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
-
           ./accessible-utm/scripts/package-windows.ps1 -Executable $exe -QemuDirectory $env:QEMU_PORTABLE_DIR
           $zip = Get-ChildItem 'accessible-utm/dist/AccessibleUTM-*-windows-x64-portable.zip' | Select-Object -First 1
           $hash2 = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
-          if ($hash1 -ne $hash2) {
-            throw "AccessibleUTM portable package is not reproducible: $hash1 != $hash2"
-          }
+          if ($hash1 -ne $hash2) { throw "AccessibleUTM portable package is not reproducible: $hash1 != $hash2" }
           Write-Host 'ACCESSIBLE_UTM_PORTABLE_ZIP_REPRODUCIBILITY = PASS'
           Write-Host "ACCESSIBLE_UTM_PORTABLE_ZIP_SHA256 = $($hash2.ToLowerInvariant())"
 
@@ -248,10 +254,8 @@ jobs:
           $extract = Join-Path $env:RUNNER_TEMP 'portable-proof'
           Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract
-
           & (Join-Path $extract 'Verify-Runtime.ps1')
           if ($LASTEXITCODE -ne 0) { throw "Extracted runtime verification failed: $LASTEXITCODE" }
-
           $app = Join-Path $extract 'AccessibleUTM.exe'
           $command = (& $app --profile accessible-android --arch x86_64 --disk AccessibleAndroid.qcow2 --print-qemu-command | Out-String)
           $bundled = Join-Path $extract 'qemu\qemu-system-x86_64.exe'
