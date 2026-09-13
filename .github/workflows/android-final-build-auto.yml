@@ -7,6 +7,13 @@ on:
     paths:
       - '.github/workflows/android-final-build-auto.yml'
       - 'scripts/assemble-complete-windows-bundle.py'
+      - 'config/accessibility-upstreams.env'
+      - 'config/toolchain.env'
+      - 'scripts/build-accessibility-apps.sh'
+      - 'scripts/build-from-zero.sh'
+      - 'device/accessibledroid/**'
+      - 'vendor/accessibledroid/**'
+  workflow_dispatch:
 
 permissions:
   contents: read

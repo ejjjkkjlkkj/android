@@ -2,8 +2,8 @@
 set -eu
 
 SERIAL=/dev/ttyS0
-TALKBACK_PACKAGE=com.google.android.accessibility.talkback
-TALKBACK_COMPONENT=com.google.android.accessibility.talkback/com.google.android.marvin.talkback.TalkBackService
+TALKBACK_PACKAGE=com.android.talkback
+TALKBACK_COMPONENT=com.android.talkback/com.google.android.marvin.talkback.TalkBackService
 ESPEAK_PACKAGE=com.reecedunn.espeak
 ACCESSIBILITY_WAIT_SECONDS=45
 
