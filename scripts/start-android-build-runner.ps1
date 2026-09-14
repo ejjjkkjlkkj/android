@@ -101,7 +101,7 @@ PY
 
   echo "GITHUB_RUNNER_NAME=$agent_name"
   state_line=''
-  for attempt in 1 2 3 4 5 6; do
+  for attempt in $(seq 1 15); do
     state_line="$(gh api "repos/$repository/actions/runners" --paginate \
       --jq ".runners[] | select(.name == \"$agent_name\") | [.status, (.busy|tostring), ([.labels[].name] | join(\",\"))] | @tsv" \
       2>/dev/null | head -n 1 || true)"
@@ -111,8 +111,14 @@ PY
       echo "GITHUB_RUNNER_BUSY=$busy"
       echo "GITHUB_RUNNER_LABELS=$labels"
       if [[ "$status" == 'online' ]]; then
-        echo 'GITHUB_RUNNER_STATE=ONLINE'
-        return 0
+        if [[ ",$labels," == *,android-build,* ]]; then
+          echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS'
+          echo 'GITHUB_RUNNER_STATE=ONLINE'
+          return 0
+        fi
+        echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=MISSING'
+        echo 'GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING'
+        return 4
       fi
     fi
     sleep 2
@@ -120,16 +126,22 @@ PY
 
   if [[ -n "$state_line" ]]; then
     echo 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE'
-  else
-    echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+    return 5
   fi
+
+  echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+  return 0
 }
 
 finish_success() {
-  local mode_name="$1"
+  local mode_name="$1" rc
   pgrep -af 'Runner\.Listener' || true
   echo "ANDROID_BUILD_RUNNER=$mode_name"
-  report_github_runner_state
+  report_github_runner_state || {
+    rc=$?
+    echo '[FAIL] Runner.Listener local actif mais runner GitHub android-build inutilisable.' >&2
+    exit "$rc"
+  }
   exit 0
 }
 
@@ -219,5 +231,5 @@ if ($LASTEXITCODE -ne 0) {
     throw "Echec du demarrage du runner WSL (exit $LASTEXITCODE)."
 }
 
-Write-Pass 'Runner AccessibleAndroid demarre ou deja actif.'
+Write-Pass 'Runner AccessibleAndroid demarre ou deja actif et verifie quand GitHub API est disponible.'
 Write-Host 'Le job GitHub en attente doit etre attribue automatiquement au runner labelise android-build.'
