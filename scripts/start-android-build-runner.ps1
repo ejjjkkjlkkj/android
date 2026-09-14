@@ -226,7 +226,9 @@ exit 22
 '@
 
 $arguments = @('-d', $Distro, '--', 'bash', '-s', '--', $runnerDirArg, $mode, $Repository)
-$linuxScript | & wsl.exe @arguments
+# PowerShell here-strings use CRLF on Windows; normalize before feeding Bash so
+# strict-mode options such as `pipefail` are not parsed with a stray `\r`.
+$linuxScript -replace "`r`n", "`n" | & wsl.exe @arguments
 if ($LASTEXITCODE -ne 0) {
     throw "Echec du demarrage du runner WSL (exit $LASTEXITCODE)."
 }
