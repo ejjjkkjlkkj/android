@@ -64,8 +64,8 @@ while true; do
 done
 
 # A successful global repo sync is not sufficient evidence that every existing
-# worktree is complete after an interrupted checkout. Detect only tracked files
-# that are missing and unresolved index entries; deliberately ignore untracked
+# worktree is complete after an interrupted checkout. Detect tracked files that
+# are missing and unresolved index entries. Deliberately ignore untracked
 # AccessibleAndroid files so the persistent workspace remains non-destructive.
 scan_file="$(mktemp)"
 # The single quotes are intentional: REPO_PATH and the git commands must be
@@ -85,6 +85,7 @@ fi
 mapfile -t damaged_projects < <(sed '/^[[:space:]]*$/d' "$scan_file" | sort -u)
 rm -f "$scan_file"
 
+aosp_repair_happened=0
 if (( ${#damaged_projects[@]} > 0 )); then
   echo "AOSP_WORKTREE_REPAIR_COUNT = ${#damaged_projects[@]}"
   for project_path in "${damaged_projects[@]}"; do
@@ -94,6 +95,7 @@ if (( ${#damaged_projects[@]} > 0 )); then
       echo "ERROR: AOSP project remains incomplete after repair: $project_path" >&2
       exit 1
     fi
+    aosp_repair_happened=1
   done
 else
   echo "AOSP_WORKTREE_REPAIR_COUNT = 0"
@@ -101,62 +103,95 @@ fi
 
 echo "AOSP_TRACKED_WORKTREE_INTEGRITY = PASS"
 
-# libcore is a critical Soong bootstrap input. Keep an explicit fail-closed
-# check for the exact corruption already observed on the self-hosted runner.
-libcore_required_files=(
-  "libcore/JavaLibrary.bp"
-  "libcore/NativeCode.bp"
-  "libcore/Extras.bp"
-)
-libcore_repair_required=0
-for required_file in "${libcore_required_files[@]}"; do
-  if [[ ! -f "$required_file" ]]; then
-    echo "AOSP_LIBCORE_MISSING = $required_file" >&2
-    libcore_repair_required=1
-  fi
-done
+# Some interrupted/self-hosted checkouts can hide missing tracked files behind
+# skip-worktree/sparse state, in which case `git ls-files -d` reports nothing.
+# Verify build-critical files explicitly and restore the complete project tree
+# from the manifest-pinned HEAD if any of them are physically absent.
+repair_critical_project() {
+  local project_path="$1"
+  shift
+  local required_file
+  local repair_required=0
 
-if (( libcore_repair_required )); then
-  echo "AOSP_LIBCORE_REPAIR = targeted repo sync --force-checkout libcore"
-  if [[ -d libcore ]]; then
-    git -C libcore status --short || true
-  fi
-  repo sync -c -j1 --fail-fast --force-checkout libcore
-
-  # A repo-managed worktree can remain physically empty after an interrupted
-  # checkout even when repo sync reports success. If the manifest revision is
-  # present in the local object database, restore the complete tracked libcore
-  # tree directly from HEAD. This preserves untracked files and avoids deleting
-  # the persistent AOSP workspace.
-  echo "AOSP_LIBCORE_RESTORE = git checkout -f HEAD -- ."
-  if ! git -C libcore rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1; then
-    echo "ERROR: libcore HEAD is not a valid commit after repo sync" >&2
+  if [[ ! -d "$project_path/.git" && ! -f "$project_path/.git" ]]; then
+    echo "ERROR: critical AOSP project worktree is missing: $project_path" >&2
     exit 1
   fi
-  for required_file in "${libcore_required_files[@]}"; do
-    relative_file="${required_file#libcore/}"
-    if ! git -C libcore cat-file -e "HEAD:$relative_file"; then
-      echo "ERROR: libcore HEAD does not contain required file: $relative_file" >&2
+  if ! git -C "$project_path" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1; then
+    echo "ERROR: $project_path HEAD is not a valid commit" >&2
+    exit 1
+  fi
+
+  for required_file in "$@"; do
+    if [[ ! -f "$project_path/$required_file" ]]; then
+      echo "AOSP_CRITICAL_FILE_MISSING = $project_path/$required_file" >&2
+      repair_required=1
+    fi
+  done
+
+  if (( repair_required )); then
+    echo "AOSP_CRITICAL_PROJECT_REPAIR = $project_path"
+    repo sync -c -j1 --fail-fast --force-checkout "$project_path"
+
+    # A persistent runner may retain sparse/skip-worktree bits from an earlier
+    # interrupted operation. Disable sparse checkout when active, then bypass
+    # skip-worktree bits explicitly while restoring every tracked path.
+    if [[ "$(git -C "$project_path" config --bool core.sparseCheckout 2>/dev/null || true)" == "true" ]]; then
+      echo "AOSP_SPARSE_CHECKOUT_DISABLE = $project_path"
+      git -C "$project_path" sparse-checkout disable
+    fi
+
+    for required_file in "$@"; do
+      if ! git -C "$project_path" cat-file -e "HEAD:$required_file"; then
+        echo "ERROR: $project_path HEAD does not contain required file: $required_file" >&2
+        exit 1
+      fi
+    done
+
+    echo "AOSP_CRITICAL_PROJECT_RESTORE = git checkout HEAD -- $project_path"
+    git -C "$project_path" checkout --ignore-skip-worktree-bits -f HEAD -- .
+    aosp_repair_happened=1
+  fi
+
+  for required_file in "$@"; do
+    if [[ ! -f "$project_path/$required_file" ]]; then
+      echo "ERROR: critical file remains missing after repair: $project_path/$required_file" >&2
       exit 1
     fi
   done
-  git -C libcore checkout -f HEAD -- .
-fi
 
-for required_file in "${libcore_required_files[@]}"; do
-  if [[ ! -f "$required_file" ]]; then
-    echo "ERROR: required libcore file is still missing after targeted repair: $required_file" >&2
+  if [[ -n "$(git -C "$project_path" ls-files -d)" || -n "$(git -C "$project_path" ls-files -u)" ]]; then
+    echo "ERROR: critical AOSP project remains incomplete after repair: $project_path" >&2
+    git -C "$project_path" status --short || true
     exit 1
   fi
-done
+}
 
-if [[ -n "$(git -C libcore ls-files -d)" || -n "$(git -C libcore ls-files -u)" ]]; then
-  echo "ERROR: libcore still has missing or unmerged tracked files after repair" >&2
-  git -C libcore status --short || true
-  exit 1
-fi
-
+repair_critical_project "libcore" \
+  "JavaLibrary.bp" \
+  "NativeCode.bp" \
+  "Extras.bp"
 echo "AOSP_LIBCORE_INTEGRITY = PASS"
+
+# Every undefined module observed in gate attempt 4 is defined by one of these
+# frameworks/base Blueprint files. Their absence proves a physically incomplete
+# worktree even when `repo sync` and the generic deleted-file scan both pass.
+repair_critical_project "frameworks/base" \
+  "AconfigFlags.bp" \
+  "packages/Android.bp" \
+  "packages/SettingsLib/Android.bp" \
+  "packages/SystemUI/Android.bp" \
+  "libs/WindowManager/Shell/Android.bp"
+echo "AOSP_FRAMEWORKS_BASE_INTEGRITY = PASS"
+
+# Do not let Soong reuse module-path metadata produced while a critical AOSP
+# worktree was incomplete. Keep the expensive output tree otherwise intact.
+if (( aosp_repair_happened )); then
+  rm -rf out/soong out/.module_paths
+  echo "AOSP_SOONG_STATE_RESET = PASS"
+else
+  echo "AOSP_SOONG_STATE_RESET = NOT_NEEDED"
+fi
 
 repo manifest -r -o "$ROOT/config/aosp-pinned-manifest.xml"
 
