@@ -2,6 +2,7 @@
 param(
     [string]$Distro = 'Debian',
     [string]$RunnerDir = '',
+    [string]$Repository = 'ejjjkkjlkkj/android',
     [switch]$Foreground
 )
 
@@ -30,12 +31,14 @@ $runnerDirArg = $RunnerDir
 
 Write-Info "Distribution: $Distro"
 Write-Info "Mode: $mode"
+Write-Info "Repository: $Repository"
 
 $linuxScript = @'
 set -euo pipefail
 
 requested_dir="${1:-}"
 mode="${2:-detached}"
+repository="${3:-ejjjkkjlkkj/android}"
 
 find_runner_dir() {
   local candidate
@@ -63,6 +66,73 @@ listener_running() {
   pgrep -af 'Runner\.Listener' >/dev/null 2>&1
 }
 
+report_github_runner_state() {
+  local agent_name state_line status busy labels attempt
+
+  if ! command -v gh >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_NO_GH'
+    return 0
+  fi
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_GH_NOT_AUTHENTICATED'
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_NO_PYTHON3'
+    return 0
+  fi
+
+  agent_name="$(python3 - "$runner_dir/.runner" <<'PY'
+import json
+import pathlib
+import sys
+try:
+    data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+    print(data.get('agentName', ''))
+except Exception:
+    print('')
+PY
+)"
+
+  if [[ -z "$agent_name" ]]; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_AGENT_NAME_UNKNOWN'
+    return 0
+  fi
+
+  echo "GITHUB_RUNNER_NAME=$agent_name"
+  state_line=''
+  for attempt in 1 2 3 4 5 6; do
+    state_line="$(gh api "repos/$repository/actions/runners" --paginate \
+      --jq ".runners[] | select(.name == \"$agent_name\") | [.status, (.busy|tostring), ([.labels[].name] | join(\",\"))] | @tsv" \
+      2>/dev/null | head -n 1 || true)"
+    if [[ -n "$state_line" ]]; then
+      IFS=$'\t' read -r status busy labels <<<"$state_line"
+      echo "GITHUB_RUNNER_STATUS=$status"
+      echo "GITHUB_RUNNER_BUSY=$busy"
+      echo "GITHUB_RUNNER_LABELS=$labels"
+      if [[ "$status" == 'online' ]]; then
+        echo 'GITHUB_RUNNER_STATE=ONLINE'
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+
+  if [[ -n "$state_line" ]]; then
+    echo 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE'
+  else
+    echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+  fi
+}
+
+finish_success() {
+  local mode_name="$1"
+  pgrep -af 'Runner\.Listener' || true
+  echo "ANDROID_BUILD_RUNNER=$mode_name"
+  report_github_runner_state
+  exit 0
+}
+
 runner_dir="$(find_runner_dir)" || {
   echo '[FAIL] installation actions-runner-android configuree introuvable' >&2
   exit 20
@@ -72,9 +142,7 @@ cd "$runner_dir"
 echo "RUNNER_DIR=$runner_dir"
 
 if listener_running; then
-  pgrep -af 'Runner\.Listener' || true
-  echo 'ANDROID_BUILD_RUNNER=ALREADY_RUNNING'
-  exit 0
+  finish_success 'ALREADY_RUNNING'
 fi
 
 workers="$(pgrep -af 'Runner\.Worker' 2>/dev/null || true)"
@@ -98,9 +166,7 @@ if [[ -x ./svc.sh ]] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/nu
       if listener_running; then
         sleep 2
         if listener_running; then
-          pgrep -af 'Runner\.Listener' || true
-          echo 'ANDROID_BUILD_RUNNER=SERVICE_STARTED'
-          exit 0
+          finish_success 'SERVICE_STARTED'
         fi
       fi
       sleep 2
@@ -134,9 +200,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   if listener_running; then
     stable=$((stable + 1))
     if (( stable >= 3 )); then
-      pgrep -af 'Runner\.Listener' || true
-      echo 'ANDROID_BUILD_RUNNER=DETACHED_STARTED'
-      exit 0
+      finish_success 'DETACHED_STARTED'
     fi
   else
     stable=0
@@ -149,7 +213,7 @@ tail -n 120 "$log" >&2 || true
 exit 22
 '@
 
-$arguments = @('-d', $Distro, '--', 'bash', '-s', '--', $runnerDirArg, $mode)
+$arguments = @('-d', $Distro, '--', 'bash', '-s', '--', $runnerDirArg, $mode, $Repository)
 $linuxScript | & wsl.exe @arguments
 if ($LASTEXITCODE -ne 0) {
     throw "Echec du demarrage du runner WSL (exit $LASTEXITCODE)."
