@@ -61,6 +61,26 @@ jobs:
           fi
           echo 'RUNNER_LAUNCHER_SAFE_RECOVERY = PASS'
 
+      - name: Validate Linux stopped-service recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=scripts/start-android-build-runner.sh
+          grep -Fq 'Runner\.Listener' "$script"
+          grep -Fq 'Runner\.Worker' "$script"
+          grep -Fq 'sudo -n ./svc.sh status 2>&1 || true' "$script"
+          grep -Fq 'sudo -n ./svc.sh start' "$script"
+          grep -Fq "finish_success 'SERVICE_STARTED'" "$script"
+          grep -Fq 'gh auth status -h github.com' "$script"
+          grep -Fq 'actions/runners' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=ONLINE' "$script"
+          grep -Fq 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS' "$script"
+          if grep -Eiq '(config\.sh|remove[.]sh|--token|gh api.*registration-token)' "$script"; then
+            echo 'ERROR: Linux recovery helper must not register, remove or reconfigure the GitHub runner.' >&2
+            exit 1
+          fi
+          echo 'LINUX_RUNNER_STOPPED_SERVICE_RECOVERY = PASS'
+
       - name: Validate safe persistent service contract
         shell: bash
         run: |
