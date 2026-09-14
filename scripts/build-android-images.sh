@@ -19,6 +19,19 @@ SWAP_TARGET_GIB="${ANDROID_BUILD_SWAP_TARGET_GIB:-32}"
 SWAP_MAX_ADD_GIB="${ANDROID_BUILD_SWAP_MAX_ADD_GIB:-16}"
 SWAP_FILE="${ANDROID_BUILD_SWAP_FILE:-$ROOT_DIR/.work/accessibleandroid-build.swap}"
 
+# Reuse compiled objects across retries and incremental image builds when the
+# host provides ccache. This reduces repeated clang work without increasing
+# peak memory usage on the 32 GiB runner.
+if command -v ccache >/dev/null 2>&1; then
+  export USE_CCACHE=1
+  export CCACHE_EXEC="$(command -v ccache)"
+  export CCACHE_DIR="${ANDROID_CCACHE_DIR:-$ROOT_DIR/.work/ccache}"
+  mkdir -p "$CCACHE_DIR"
+  ccache --max-size="${ANDROID_CCACHE_MAX_SIZE:-30G}" >/dev/null
+  echo "ANDROID_CCACHE_DIR = $CCACHE_DIR"
+  echo "ANDROID_CCACHE = ENABLED"
+fi
+
 # Android 17 Soong analysis is memory-heavy and happens before Ninja can make
 # meaningful use of high parallelism. On the 32 GiB-class WSL runner, -j4 has
 # already ended in exit 137. Keep enough headroom for Soong and the host.
