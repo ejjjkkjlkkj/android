@@ -207,7 +207,7 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
         args.push("-drive".to_owned());
         args.push(format!(
             "if=none,id={ANDROID_OS_DISK_ID},file={},format={format},cache=writeback",
-            config.disk_path.trim()
+            config.disk_path.trim().replace(',', ",,")
         ));
         args.push("-device".to_owned());
 
@@ -287,6 +287,20 @@ mod tests {
         assert_eq!(disk_format("disk.vhd").unwrap(), "vpc");
         assert_eq!(disk_format("disk.vhdx").unwrap(), "vhdx");
         assert!(disk_format("disk.iso").is_err());
+    }
+
+    #[test]
+    fn disk_path_commas_remain_part_of_the_filename() {
+        let config = VmConfig {
+            disk_path: "C:/VMs/Android, personal/disk.qcow2".to_owned(),
+            ..VmConfig::default()
+        };
+        let args = build_args(&config).unwrap();
+        let drive = args.windows(2).find(|pair| pair[0] == "-drive").unwrap();
+        assert_eq!(
+            drive[1],
+            "if=none,id=osdisk,file=C:/VMs/Android,, personal/disk.qcow2,format=qcow2,cache=writeback"
+        );
     }
 
     #[test]

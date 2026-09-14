@@ -125,6 +125,7 @@ fn bundled_file(relative: &[&str]) -> Option<String> {
 fn bundled_x86_firmware() -> Option<String> {
     for relative in [
         &["qemu", "share", "edk2-x86_64-code.fd"][..],
+        &["qemu", "share", "qemu", "edk2-x86_64-code.fd"][..],
         &["qemu", "edk2-x86_64-code.fd"][..],
         &["qemu", "share", "edk2-i386-code.fd"][..],
     ] {
