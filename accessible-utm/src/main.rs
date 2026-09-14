@@ -380,10 +380,7 @@ impl AccessibleUtmApp {
     fn save_configuration(&mut self) {
         match self.config.save(&self.config_path) {
             Ok(()) => {
-                self.status = format!(
-                    "Configuration saved to {}.",
-                    self.config_path.display()
-                )
+                self.status = format!("Configuration saved to {}.", self.config_path.display())
             }
             Err(error) => self.status = error,
         }
@@ -397,10 +394,7 @@ impl AccessibleUtmApp {
                     config.qemu_binary = default_qemu_binary(config.architecture);
                 }
                 self.config = config;
-                self.status = format!(
-                    "Configuration loaded from {}.",
-                    self.config_path.display()
-                );
+                self.status = format!("Configuration loaded from {}.", self.config_path.display());
             }
             Err(error) => self.status = error,
         }
@@ -580,13 +574,13 @@ impl AccessibleUtmApp {
                 .add_enabled(running, egui::Button::new("Reset virtual machine"))
                 .clicked()
             {
-                self.run_qmp_action("system_reset", "Virtual machine reset requested through QMP.");
+                self.run_qmp_action(
+                    "system_reset",
+                    "Virtual machine reset requested through QMP.",
+                );
             }
             if ui
-                .add_enabled(
-                    running,
-                    egui::Button::new("Request graceful shutdown (F8)"),
-                )
+                .add_enabled(running, egui::Button::new("Request graceful shutdown (F8)"))
                 .clicked()
             {
                 self.run_qmp_action(
@@ -701,10 +695,7 @@ fn main() -> eframe::Result<()> {
 mod tests {
     use super::*;
     use egui::accesskit::Role;
-    use egui_kittest::{
-        Harness,
-        kittest::Queryable,
-    };
+    use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
     fn cli_names_round_trip() {
@@ -761,7 +752,9 @@ mod tests {
             "Load configuration (Ctrl+O)",
         ] {
             assert!(
-                harness.query_by_role_and_label(Role::Button, label).is_some(),
+                harness
+                    .query_by_role_and_label(Role::Button, label)
+                    .is_some(),
                 "AccessKit button missing: {label}"
             );
         }

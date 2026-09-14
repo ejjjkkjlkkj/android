@@ -101,7 +101,9 @@ fn safe_relative_path(text: &str) -> Result<PathBuf, String> {
     }
     let path = Path::new(text);
     if path.is_absolute() {
-        return Err(format!("Embedded payload contains an absolute path: {text}"));
+        return Err(format!(
+            "Embedded payload contains an absolute path: {text}"
+        ));
     }
 
     let mut clean = PathBuf::new();
@@ -140,7 +142,11 @@ fn runtime_is_complete(root: &Path) -> bool {
         && root.join(".payload-complete").is_file()
 }
 
-fn copy_exact_bytes(source: &mut File, destination: &mut File, mut remaining: u64) -> Result<(), String> {
+fn copy_exact_bytes(
+    source: &mut File,
+    destination: &mut File,
+    mut remaining: u64,
+) -> Result<(), String> {
     let mut buffer = vec![0u8; 1024 * 1024];
     while remaining > 0 {
         let wanted = usize::try_from(remaining.min(buffer.len() as u64))
@@ -290,9 +296,8 @@ pub fn prepare_runtime() -> Result<Option<PathBuf>, String> {
         {
             return Err("Embedded runtime is incomplete after extraction.".to_owned());
         }
-        fs::write(staging.join(".payload-complete"), descriptor.key()).map_err(|error| {
-            format!("Cannot write embedded runtime completion marker: {error}")
-        })?;
+        fs::write(staging.join(".payload-complete"), descriptor.key())
+            .map_err(|error| format!("Cannot write embedded runtime completion marker: {error}"))?;
         Ok::<(), String>(())
     })();
 

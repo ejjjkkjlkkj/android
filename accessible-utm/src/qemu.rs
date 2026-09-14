@@ -28,7 +28,9 @@ fn bundled_qemu_binary(exe: &str) -> Option<String> {
     let current_exe = env::current_exe().ok()?;
     let app_dir = current_exe.parent()?;
     let candidate = app_dir.join("qemu").join(exe);
-    candidate.is_file().then(|| candidate.to_string_lossy().into_owned())
+    candidate
+        .is_file()
+        .then(|| candidate.to_string_lossy().into_owned())
 }
 
 pub fn default_qemu_binary(architecture: Architecture) -> String {
@@ -143,12 +145,17 @@ pub fn validate_media(config: &VmConfig) -> Result<(), String> {
         return Err(format!("ISO not found: {}", config.iso_path.trim()));
     }
     if !config.disk_path.trim().is_empty() && !Path::new(config.disk_path.trim()).is_file() {
-        return Err(format!("Virtual disk not found: {}", config.disk_path.trim()));
+        return Err(format!(
+            "Virtual disk not found: {}",
+            config.disk_path.trim()
+        ));
     }
-    if !config.firmware_path.trim().is_empty()
-        && !Path::new(config.firmware_path.trim()).is_file()
+    if !config.firmware_path.trim().is_empty() && !Path::new(config.firmware_path.trim()).is_file()
     {
-        return Err(format!("Firmware not found: {}", config.firmware_path.trim()));
+        return Err(format!(
+            "Firmware not found: {}",
+            config.firmware_path.trim()
+        ));
     }
     Ok(())
 }
@@ -175,7 +182,11 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
         "-name".to_owned(),
         config.name.clone(),
         "-machine".to_owned(),
-        format!("{},accel={}", machine(config.architecture), accelerator(config.architecture)),
+        format!(
+            "{},accel={}",
+            machine(config.architecture),
+            accelerator(config.architecture)
+        ),
         "-m".to_owned(),
         config.memory_mib.clamp(1024, 65536).to_string(),
         "-smp".to_owned(),
@@ -285,15 +296,19 @@ mod tests {
             ..VmConfig::default()
         };
         let args = build_args(&config).unwrap();
-        assert!(args.iter().any(|arg| {
-            arg == "virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6,bootindex=1"
-        }));
-        assert!(args
-            .iter()
-            .any(|arg| arg == "virtio-rng-pci,bus=pcie.0,addr=0x7"));
-        assert!(args
-            .iter()
-            .any(|arg| arg == "virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8"));
+        assert!(
+            args.iter().any(|arg| {
+                arg == "virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6,bootindex=1"
+            })
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == "virtio-rng-pci,bus=pcie.0,addr=0x7")
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == "virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8")
+        );
     }
 
     #[test]
@@ -305,15 +320,18 @@ mod tests {
         let args = build_args(&config).unwrap();
         assert!(args.iter().any(|arg| arg == "virtio-vga,id=android-gpu"));
         assert!(args.iter().any(|arg| arg == "qemu-xhci,id=xhci"));
-        assert!(args
-            .iter()
-            .any(|arg| arg == "usb-kbd,bus=xhci.0,id=android-keyboard"));
-        assert!(args
-            .iter()
-            .any(|arg| arg == "usb-tablet,bus=xhci.0,id=android-tablet"));
-        assert!(args
-            .iter()
-            .any(|arg| arg == &format!("{},id=android-audio", host_audio_driver())));
+        assert!(
+            args.iter()
+                .any(|arg| arg == "usb-kbd,bus=xhci.0,id=android-keyboard")
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == "usb-tablet,bus=xhci.0,id=android-tablet")
+        );
+        assert!(
+            args.iter()
+                .any(|arg| arg == &format!("{},id=android-audio", host_audio_driver()))
+        );
         assert!(args.iter().any(|arg| {
             arg == "virtio-sound-pci,audiodev=android-audio,streams=2,id=android-sound"
         }));
@@ -322,8 +340,14 @@ mod tests {
 
     #[test]
     fn supports_arm64_and_riscv64_qemu_programs() {
-        assert_eq!(qemu_program_name(Architecture::Aarch64), "qemu-system-aarch64");
-        assert_eq!(qemu_program_name(Architecture::Riscv64), "qemu-system-riscv64");
+        assert_eq!(
+            qemu_program_name(Architecture::Aarch64),
+            "qemu-system-aarch64"
+        );
+        assert_eq!(
+            qemu_program_name(Architecture::Riscv64),
+            "qemu-system-riscv64"
+        );
         assert_eq!(machine(Architecture::Aarch64), "virt");
         assert_eq!(machine(Architecture::Riscv64), "virt");
     }

@@ -25,6 +25,7 @@ impl Architecture {
         }
     }
 
+    #[cfg(test)]
     pub fn cli_name(self) -> &'static str {
         match self {
             Self::X86_64 => "x86_64",
@@ -69,6 +70,7 @@ impl GuestProfile {
         }
     }
 
+    #[cfg(test)]
     pub fn cli_name(self) -> &'static str {
         match self {
             Self::AccessibleAndroid => "accessible-android",
@@ -192,15 +194,15 @@ impl VmConfig {
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "Cannot create VM configuration directory '{}': {error}",
-                        parent.display()
-                    )
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "Cannot create VM configuration directory '{}': {error}",
+                    parent.display()
+                )
+            })?;
         }
 
         let json = self.to_json_pretty()?;
@@ -232,10 +234,7 @@ impl VmConfig {
 
     pub fn load(path: &Path) -> Result<Self, String> {
         let text = fs::read_to_string(path).map_err(|error| {
-            format!(
-                "Cannot read VM configuration '{}': {error}",
-                path.display()
-            )
+            format!("Cannot read VM configuration '{}': {error}", path.display())
         })?;
         Self::from_json(&text)
     }
@@ -300,12 +299,16 @@ mod tests {
             std::process::id()
         ));
 
-        let mut first = VmConfig::default();
-        first.name = "First".to_owned();
+        let first = VmConfig {
+            name: "First".to_owned(),
+            ..VmConfig::default()
+        };
         first.save(&path).unwrap();
 
-        let mut second = VmConfig::default();
-        second.name = "Second".to_owned();
+        let second = VmConfig {
+            name: "Second".to_owned(),
+            ..VmConfig::default()
+        };
         second.save(&path).unwrap();
 
         let restored = VmConfig::load(&path).unwrap();
