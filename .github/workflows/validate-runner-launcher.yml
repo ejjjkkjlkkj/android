@@ -1,0 +1,46 @@
+name: Validate Android runner launcher
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-runner-launcher:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Parse PowerShell runner launcher
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/start-android-build-runner.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -ne 0) {
+            $errors | Format-List -Force
+            throw "PowerShell parser found $($errors.Count) error(s)."
+          }
+          'POWERSHELL_RUNNER_LAUNCHER_PARSE = PASS'
+
+      - name: Validate safe recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=scripts/start-android-build-runner.ps1
+          grep -Fq "[string]\$Distro = 'Debian'" "$script"
+          grep -Fq "actions-runner-android" "$script"
+          grep -Fq "ANDROID_BUILD_RUNNER=DETACHED_STARTED" "$script"
+          grep -Fq "Runner\\.(Listener|Worker)" "$script"
+          if grep -Eiq '(config\.sh[[:space:]]+--url|remove[.]sh|--token)' "$script"; then
+            echo 'ERROR: runner launcher must not register, remove or reconfigure the GitHub runner.' >&2
+            exit 1
+          fi
+          echo 'RUNNER_LAUNCHER_SAFE_RECOVERY = PASS'
