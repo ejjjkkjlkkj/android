@@ -28,6 +28,14 @@ if (( MEM_TOTAL_GIB > 0 && MEM_TOTAL_GIB <= 36 && BUILD_JOBS > 2 )); then
   echo "ANDROID_BUILD_JOBS_MEMORY_CAP = $BUILD_JOBS"
 fi
 
+# Keep the effective value visible to child processes and to later GitHub
+# Actions steps. The workflow may initially select a higher value before this
+# script applies its memory-aware cap.
+export ANDROID_BUILD_JOBS="$BUILD_JOBS"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  printf 'ANDROID_BUILD_JOBS=%s\n' "$BUILD_JOBS" >> "$GITHUB_ENV"
+fi
+
 ensure_build_swap() {
   local swap_total_kib swap_total_gib add_gib free_kib required_kib
   local -a sudo_cmd=()
@@ -126,10 +134,18 @@ release_pre_soong_memory() {
 
   echo "MEMORY_BEFORE_SOONG ="
   free -h || true
+  echo "MEMORY_PSI_BEFORE_SOONG ="
+  if [[ -r /proc/pressure/memory ]]; then
+    cat /proc/pressure/memory || true
+  else
+    echo "unavailable"
+  fi
   echo "SWAP_BEFORE_SOONG ="
   if command -v swapon >/dev/null 2>&1; then
     swapon --show || true
   fi
+  echo "DISK_BEFORE_SOONG ="
+  df -h "$ROOT_DIR" "$AOSP_DIR" || true
 }
 
 [[ -d "$AOSP_DIR/build" ]] || {
