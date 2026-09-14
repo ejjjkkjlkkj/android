@@ -55,7 +55,7 @@ worker_processes() {
 }
 
 report_github_runner_state() {
-  local agent_name state_line status busy labels attempt
+  local agent_name state_line status busy labels
 
   if ! command -v gh >/dev/null 2>&1; then
     echo 'GITHUB_RUNNER_STATE=SKIP_NO_GH'
@@ -88,7 +88,7 @@ PY
 
   echo "GITHUB_RUNNER_NAME=$agent_name"
   state_line=''
-  for attempt in 1 2 3 4 5 6; do
+  for _ in 1 2 3 4 5 6; do
     state_line="$(gh api "repos/$REPOSITORY/actions/runners" --paginate \
       --jq ".runners[] | select(.name == \"$agent_name\") | [.status, (.busy|tostring), ([.labels[].name] | join(\",\"))] | @tsv" \
       2>/dev/null | head -n 1 || true)"
@@ -159,12 +159,10 @@ start_service_if_available() {
   sudo -n ./svc.sh status 2>&1 || true
 
   service_log="$(mktemp)"
-  if ! sudo -n ./svc.sh start >"$service_log" 2>&1; then
-    cat "$service_log" >&2 || true
+  if ! sudo -n ./svc.sh start 2>&1 | tee "$service_log"; then
     rm -f "$service_log"
     return 1
   fi
-  cat "$service_log"
   rm -f "$service_log"
 
   for _ in 1 2 3 4 5 6; do
