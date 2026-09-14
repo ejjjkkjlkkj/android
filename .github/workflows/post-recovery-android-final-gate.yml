@@ -32,6 +32,8 @@ jobs:
       SYNC_RETRY_DELAY_SECONDS: '10'
       REUSE_KERNEL_DIST: '1'
       REUSE_ACCESSIBILITY_APPS: '1'
+      ANDROID_BUILD_SWAP_TARGET_GIB: '32'
+      ANDROID_BUILD_SWAP_MAX_ADD_GIB: '16'
 
     steps:
       - name: Checkout latest Android gate source without deleting persistent workspace
@@ -51,25 +53,37 @@ jobs:
           ram_gib=$((ram_kib / 1024 / 1024))
           cpus="$(nproc)"
 
+          # Soong graph analysis is the dominant memory risk. The real WSL
+          # runner exposes 31 GiB and previously died with exit 137 at -j4.
+          # Keep AOSP compilation conservative while allowing sync/kernel work
+          # to use modestly higher parallelism.
           if (( ram_gib < 16 )); then
-            jobs=2
-          elif (( ram_gib < 32 )); then
-            jobs=4
+            build_jobs=1
+            sync_jobs=2
+            kernel_jobs=2
+          elif (( ram_gib <= 36 )); then
+            build_jobs=2
+            sync_jobs=4
+            kernel_jobs=4
           elif (( ram_gib < 64 )); then
-            jobs=6
+            build_jobs=6
+            sync_jobs=8
+            kernel_jobs=4
           else
-            jobs=12
+            build_jobs=12
+            sync_jobs=8
+            kernel_jobs=4
           fi
-          (( jobs > cpus )) && jobs=$cpus
-          (( jobs < 1 )) && jobs=1
 
-          sync_jobs=$jobs
-          (( sync_jobs > 8 )) && sync_jobs=8
-          kernel_jobs=$jobs
-          (( kernel_jobs > 4 )) && kernel_jobs=4
+          (( build_jobs > cpus )) && build_jobs=$cpus
+          (( sync_jobs > cpus )) && sync_jobs=$cpus
+          (( kernel_jobs > cpus )) && kernel_jobs=$cpus
+          (( build_jobs < 1 )) && build_jobs=1
+          (( sync_jobs < 1 )) && sync_jobs=1
+          (( kernel_jobs < 1 )) && kernel_jobs=1
 
           echo "BUILD_SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
-          echo "ANDROID_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_JOBS=$build_jobs" >> "$GITHUB_ENV"
           echo "SYNC_JOBS=$sync_jobs" >> "$GITHUB_ENV"
           echo "KERNEL_SYNC_JOBS=$kernel_jobs" >> "$GITHUB_ENV"
 
@@ -83,9 +97,11 @@ jobs:
           echo "BUILD_SOURCE_SHA=$source_sha"
           echo "RAM_GIB=$ram_gib"
           echo "CPU_COUNT=$cpus"
-          echo "ANDROID_BUILD_JOBS=$jobs"
+          echo "ANDROID_BUILD_JOBS=$build_jobs"
           echo "SYNC_JOBS=$sync_jobs"
           echo "KERNEL_SYNC_JOBS=$kernel_jobs"
+          echo "ANDROID_BUILD_SWAP_TARGET_GIB=$ANDROID_BUILD_SWAP_TARGET_GIB"
+          echo "ANDROID_BUILD_SWAP_MAX_ADD_GIB=$ANDROID_BUILD_SWAP_MAX_ADD_GIB"
 
       - name: Refuse an overlapping Android build
         shell: bash
@@ -175,6 +191,8 @@ jobs:
             echo "android_build_jobs=${ANDROID_BUILD_JOBS:-unknown}"
             echo "sync_jobs=${SYNC_JOBS:-unknown}"
             echo "kernel_sync_jobs=${KERNEL_SYNC_JOBS:-unknown}"
+            echo "android_build_swap_target_gib=${ANDROID_BUILD_SWAP_TARGET_GIB:-unknown}"
+            echo "android_build_swap_max_add_gib=${ANDROID_BUILD_SWAP_MAX_ADD_GIB:-unknown}"
             echo "final_qcow2=${FINAL_QCOW2:-unknown}"
             echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > .work/final-evidence/POST-RECOVERY-ANDROID-GATE.txt
