@@ -703,7 +703,7 @@ mod tests {
     use egui::accesskit::Role;
     use egui_kittest::{
         Harness,
-        kittest::{NodeT, Queryable},
+        kittest::Queryable,
     };
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn accesskit_semantics_expose_primary_controls_and_actions() {
         let app = AccessibleUtmApp::default();
-        let mut harness = Harness::builder()
+        let harness = Harness::builder()
             .with_size(egui::vec2(1800.0, 1600.0))
             .build_ui_state(|ui, app| app.render(ui), app);
 
