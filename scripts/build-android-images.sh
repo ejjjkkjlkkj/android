@@ -24,7 +24,8 @@ SWAP_FILE="${ANDROID_BUILD_SWAP_FILE:-$ROOT_DIR/.work/accessibleandroid-build.sw
 # peak memory usage on the 32 GiB runner.
 if command -v ccache >/dev/null 2>&1; then
   export USE_CCACHE=1
-  export CCACHE_EXEC="$(command -v ccache)"
+  CCACHE_EXEC="$(command -v ccache)"
+  export CCACHE_EXEC
   export CCACHE_DIR="${ANDROID_CCACHE_DIR:-$ROOT_DIR/.work/ccache}"
   mkdir -p "$CCACHE_DIR"
   ccache --max-size="${ANDROID_CCACHE_MAX_SIZE:-30G}" >/dev/null
