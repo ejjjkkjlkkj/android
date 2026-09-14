@@ -59,6 +59,10 @@ find_runner_dir() {
   dirname "$candidate"
 }
 
+listener_running() {
+  pgrep -af 'Runner\.Listener' >/dev/null 2>&1
+}
+
 runner_dir="$(find_runner_dir)" || {
   echo '[FAIL] installation actions-runner-android configuree introuvable' >&2
   exit 20
@@ -67,21 +71,44 @@ runner_dir="$(find_runner_dir)" || {
 cd "$runner_dir"
 echo "RUNNER_DIR=$runner_dir"
 
-active="$(pgrep -af 'Runner\.(Listener|Worker)' 2>/dev/null || true)"
-if [[ -n "$active" ]]; then
-  echo "$active"
+if listener_running; then
+  pgrep -af 'Runner\.Listener' || true
   echo 'ANDROID_BUILD_RUNNER=ALREADY_RUNNING'
   exit 0
 fi
 
+workers="$(pgrep -af 'Runner\.Worker' 2>/dev/null || true)"
+if [[ -n "$workers" ]]; then
+  echo '[WARN] Runner.Worker detecte sans Runner.Listener actif:' >&2
+  echo "$workers" >&2
+fi
+
+# svc.sh status returns non-zero when an installed service is stopped. Do not
+# gate the start attempt on status success: try start directly, then prove that
+# Runner.Listener really remains alive before accepting service mode.
 if [[ -x ./svc.sh ]] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-  if sudo -n ./svc.sh status >/dev/null 2>&1; then
-    sudo -n ./svc.sh start
-    sleep 3
-    if pgrep -af 'Runner\.(Listener|Worker)' >/dev/null 2>&1; then
-      echo 'ANDROID_BUILD_RUNNER=SERVICE_STARTED'
-      exit 0
-    fi
+  echo 'RUNNER_SERVICE_STATUS_BEFORE='
+  sudo -n ./svc.sh status 2>&1 || true
+
+  service_log="$(mktemp)"
+  if sudo -n ./svc.sh start >"$service_log" 2>&1; then
+    cat "$service_log"
+    rm -f "$service_log"
+    for _ in 1 2 3 4 5 6; do
+      if listener_running; then
+        sleep 2
+        if listener_running; then
+          pgrep -af 'Runner\.Listener' || true
+          echo 'ANDROID_BUILD_RUNNER=SERVICE_STARTED'
+          exit 0
+        fi
+      fi
+      sleep 2
+    done
+  else
+    cat "$service_log" >&2 || true
+    rm -f "$service_log"
+    echo '[INFO] Service runner indisponible; fallback vers run.sh.' >&2
   fi
 fi
 
@@ -96,21 +123,30 @@ nohup ./run.sh >>"$log" 2>&1 </dev/null &
 pid=$!
 echo "RUNNER_PID=$pid"
 echo "RUNNER_LOG=$log"
-sleep 4
 
-if ! kill -0 "$pid" 2>/dev/null; then
-  echo '[FAIL] le runner s est arrete pendant le demarrage' >&2
-  tail -n 80 "$log" >&2 || true
-  exit 21
-fi
+# A process that survives one short sleep can still die immediately after its
+# initial GitHub handshake. Require a stable Listener observation instead.
+stable=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    break
+  fi
+  if listener_running; then
+    stable=$((stable + 1))
+    if (( stable >= 3 )); then
+      pgrep -af 'Runner\.Listener' || true
+      echo 'ANDROID_BUILD_RUNNER=DETACHED_STARTED'
+      exit 0
+    fi
+  else
+    stable=0
+  fi
+  sleep 2
+done
 
-if ! pgrep -af 'Runner\.(Listener|Worker)' >/dev/null 2>&1; then
-  echo '[FAIL] processus GitHub Actions runner non detecte' >&2
-  tail -n 80 "$log" >&2 || true
-  exit 22
-fi
-
-echo 'ANDROID_BUILD_RUNNER=DETACHED_STARTED'
+echo '[FAIL] Runner.Listener ne reste pas actif apres le demarrage' >&2
+tail -n 120 "$log" >&2 || true
+exit 22
 '@
 
 $arguments = @('-d', $Distro, '--', 'bash', '-s', '--', $runnerDirArg, $mode)
