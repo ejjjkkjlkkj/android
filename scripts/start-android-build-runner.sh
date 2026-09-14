@@ -8,6 +8,7 @@ set -euo pipefail
 
 RUNNER_DIR="${RUNNER_DIR:-}"
 MODE="${1:-auto}"
+REPOSITORY="${REPOSITORY:-ejjjkkjlkkj/android}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -41,8 +42,87 @@ find_runner_dir() {
   return 1
 }
 
-runner_processes() {
-  pgrep -af 'Runner\.(Listener|Worker)' 2>/dev/null || true
+listener_running() {
+  pgrep -af 'Runner\.Listener' >/dev/null 2>&1
+}
+
+listener_processes() {
+  pgrep -af 'Runner\.Listener' 2>/dev/null || true
+}
+
+worker_processes() {
+  pgrep -af 'Runner\.Worker' 2>/dev/null || true
+}
+
+report_github_runner_state() {
+  local agent_name state_line status busy labels attempt
+
+  if ! command -v gh >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_NO_GH'
+    return 0
+  fi
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_GH_NOT_AUTHENTICATED'
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_NO_PYTHON3'
+    return 0
+  fi
+
+  agent_name="$(python3 - "$RUNNER_DIR/.runner" <<'PY'
+import json
+import pathlib
+import sys
+try:
+    data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+    print(data.get('agentName', ''))
+except Exception:
+    print('')
+PY
+)"
+  if [[ -z "$agent_name" ]]; then
+    echo 'GITHUB_RUNNER_STATE=SKIP_AGENT_NAME_UNKNOWN'
+    return 0
+  fi
+
+  echo "GITHUB_RUNNER_NAME=$agent_name"
+  state_line=''
+  for attempt in 1 2 3 4 5 6; do
+    state_line="$(gh api "repos/$REPOSITORY/actions/runners" --paginate \
+      --jq ".runners[] | select(.name == \"$agent_name\") | [.status, (.busy|tostring), ([.labels[].name] | join(\",\"))] | @tsv" \
+      2>/dev/null | head -n 1 || true)"
+    if [[ -n "$state_line" ]]; then
+      IFS=$'\t' read -r status busy labels <<<"$state_line"
+      echo "GITHUB_RUNNER_STATUS=$status"
+      echo "GITHUB_RUNNER_BUSY=$busy"
+      echo "GITHUB_RUNNER_LABELS=$labels"
+      if [[ "$status" == 'online' ]]; then
+        if [[ ",$labels," == *,android-build,* ]]; then
+          echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS'
+        else
+          echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=MISSING'
+        fi
+        echo 'GITHUB_RUNNER_STATE=ONLINE'
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+
+  if [[ -n "$state_line" ]]; then
+    echo 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE'
+  else
+    echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+  fi
+}
+
+finish_success() {
+  local mode_name="$1"
+  listener_processes
+  echo "ANDROID_BUILD_RUNNER=$mode_name"
+  report_github_runner_state
+  exit 0
 }
 
 RUNNER_DIR="$(find_runner_dir)" || fail "configured actions-runner-android installation not found"
@@ -51,31 +131,51 @@ RUNNER_DIR="$(find_runner_dir)" || fail "configured actions-runner-android insta
 
 cd "$RUNNER_DIR"
 
-echo "RUNNER_DIR = $RUNNER_DIR"
-echo "RUNNER_MODE = $MODE"
+echo "RUNNER_DIR=$RUNNER_DIR"
+echo "RUNNER_MODE=$MODE"
+echo "RUNNER_REPOSITORY=$REPOSITORY"
 
-active="$(runner_processes)"
-if [[ -n "$active" ]]; then
-  echo "$active"
-  echo "ANDROID_BUILD_RUNNER = ALREADY_RUNNING"
-  exit 0
+if listener_running; then
+  finish_success 'ALREADY_RUNNING'
+fi
+
+workers="$(worker_processes)"
+if [[ -n "$workers" ]]; then
+  echo 'WARN: Runner.Worker detected without an active Runner.Listener:' >&2
+  echo "$workers" >&2
 fi
 
 start_service_if_available() {
+  local service_log
+
   [[ -x ./svc.sh ]] || return 1
   command -v sudo >/dev/null 2>&1 || return 1
   sudo -n true >/dev/null 2>&1 || return 1
 
-  # svc.sh status succeeds only when this runner has already been installed as
-  # a service. Never auto-install a new service or alter runner registration.
-  if sudo -n ./svc.sh status >/dev/null 2>&1; then
-    sudo -n ./svc.sh start
-    sleep 2
-    if [[ -n "$(runner_processes)" ]]; then
-      echo "ANDROID_BUILD_RUNNER = SERVICE_STARTED"
-      return 0
-    fi
+  # An installed but stopped systemd service commonly makes `svc.sh status`
+  # return non-zero. Always show status, then attempt start directly. The only
+  # accepted success condition is a stable Runner.Listener process.
+  echo 'RUNNER_SERVICE_STATUS_BEFORE='
+  sudo -n ./svc.sh status 2>&1 || true
+
+  service_log="$(mktemp)"
+  if ! sudo -n ./svc.sh start >"$service_log" 2>&1; then
+    cat "$service_log" >&2 || true
+    rm -f "$service_log"
+    return 1
   fi
+  cat "$service_log"
+  rm -f "$service_log"
+
+  for _ in 1 2 3 4 5 6; do
+    if listener_running; then
+      sleep 2
+      if listener_running; then
+        finish_success 'SERVICE_STARTED'
+      fi
+    fi
+    sleep 2
+  done
 
   return 1
 }
@@ -85,24 +185,30 @@ case "$MODE" in
     if start_service_if_available; then
       exit 0
     fi
-    echo "ANDROID_BUILD_RUNNER = FOREGROUND"
+    echo 'ANDROID_BUILD_RUNNER=FOREGROUND'
     exec ./run.sh
     ;;
   service)
     start_service_if_available || fail "runner service is not installed or could not be started"
     ;;
   foreground)
-    echo "ANDROID_BUILD_RUNNER = FOREGROUND"
+    echo 'ANDROID_BUILD_RUNNER=FOREGROUND'
     exec ./run.sh
     ;;
   status)
-    active="$(runner_processes)"
-    if [[ -n "$active" ]]; then
-      echo "$active"
-      echo "ANDROID_BUILD_RUNNER = RUNNING"
+    if listener_running; then
+      listener_processes
+      echo 'ANDROID_BUILD_RUNNER=RUNNING'
+      report_github_runner_state
       exit 0
     fi
-    echo "ANDROID_BUILD_RUNNER = OFFLINE"
+    workers="$(worker_processes)"
+    if [[ -n "$workers" ]]; then
+      echo "$workers" >&2
+      echo 'ANDROID_BUILD_RUNNER=ORPHAN_WORKER'
+      exit 3
+    fi
+    echo 'ANDROID_BUILD_RUNNER=OFFLINE'
     exit 1
     ;;
   *)
