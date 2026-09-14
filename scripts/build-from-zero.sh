@@ -55,6 +55,11 @@ fi
 "$ROOT_DIR/scripts/stage-kernel.sh"
 
 "$ROOT_DIR/scripts/build-accessibility-apps.sh"
+# A persistent runner may retain a partial Soong graph from an interrupted
+# build. Clear only generated graph metadata before invoking the edition
+# pipeline; synchronized sources and reusable build caches remain untouched.
+rm -rf "$AOSP_DIR/out/soong" "$AOSP_DIR/out/.module_paths"
+echo "AOSP_SOONG_STATE_RESET = PASS (build-from-zero fresh graph)"
 "$ROOT_DIR/scripts/build-edition.sh" "$EDITION"
 
 echo "BUILD_FROM_ZERO = PASS"
