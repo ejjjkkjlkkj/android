@@ -122,15 +122,28 @@ fn bundled_file(relative: &[&str]) -> Option<String> {
     path.is_file().then(|| path.to_string_lossy().into_owned())
 }
 
-fn bundled_x86_firmware() -> Option<String> {
-    for relative in [
-        &["qemu", "share", "edk2-x86_64-code.fd"][..],
-        &["qemu", "share", "qemu", "edk2-x86_64-code.fd"][..],
-        &["qemu", "edk2-x86_64-code.fd"][..],
-        &["qemu", "share", "edk2-i386-code.fd"][..],
-    ] {
-        if let Some(path) = bundled_file(relative) {
-            return Some(path);
+fn firmware_names(architecture: Architecture) -> &'static [&'static str] {
+    match architecture {
+        Architecture::X86_64 => &["edk2-x86_64-code.fd", "edk2-i386-code.fd"],
+        Architecture::Aarch64 => &["edk2-aarch64-code.fd"],
+        Architecture::Riscv64 => &[
+            "edk2-riscv-code.fd",
+            "edk2-riscv64-code.fd",
+            "edk2-riscv.fd",
+        ],
+    }
+}
+
+pub fn bundled_firmware(architecture: Architecture) -> Option<String> {
+    for name in firmware_names(architecture) {
+        for relative in [
+            &["qemu", "share", *name][..],
+            &["qemu", "share", "qemu", *name][..],
+            &["qemu", *name][..],
+        ] {
+            if let Some(path) = bundled_file(relative) {
+                return Some(path);
+            }
         }
     }
     None
@@ -155,7 +168,11 @@ impl Default for VmConfig {
             qemu_binary: String::new(),
             iso_path,
             disk_path,
-            firmware_path: bundled_x86_firmware().unwrap_or_default(),
+            // Leave this empty unless the user explicitly overrides it. QEMU
+            // argument generation resolves the bundled firmware dynamically
+            // from the selected architecture, so switching from x86_64 to
+            // ARM64/RISC-V can never retain an incompatible x86 firmware.
+            firmware_path: String::new(),
             memory_mib: 8192,
             cpu_count: 6,
             qmp_port: 4444,
@@ -262,6 +279,13 @@ mod tests {
         assert_eq!(restored.iso_path, "AccessibleAndroid.iso");
         assert_eq!(restored.memory_mib, 8192);
         assert_eq!(restored.cpu_count, 6);
+    }
+
+    #[test]
+    fn firmware_candidates_cover_every_supported_architecture() {
+        assert_eq!(firmware_names(Architecture::X86_64)[0], "edk2-x86_64-code.fd");
+        assert_eq!(firmware_names(Architecture::Aarch64)[0], "edk2-aarch64-code.fd");
+        assert!(firmware_names(Architecture::Riscv64).contains(&"edk2-riscv-code.fd"));
     }
 
     #[test]
