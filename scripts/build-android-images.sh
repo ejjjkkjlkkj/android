@@ -171,6 +171,22 @@ echo "ANDROID_BUILD_JOBS = $BUILD_JOBS"
 echo "HOST_MEM_TOTAL_GIB = $MEM_TOTAL_GIB"
 lunch "$LUNCH_TARGET"
 
+# The generic AOSP x86_64 board normally enables x86 as a second architecture.
+# AccessibleAndroid intentionally removes that secondary ABI to keep the guest
+# and the Soong graph x86_64-only. Fail before expensive graph analysis if a
+# future AOSP/product change silently restores the 32-bit target.
+echo "TARGET_ARCH_EFFECTIVE = ${TARGET_ARCH:-<unset>}"
+echo "TARGET_2ND_ARCH_EFFECTIVE = ${TARGET_2ND_ARCH:-<none>}"
+if [[ "${TARGET_ARCH:-}" != "x86_64" ]]; then
+  echo "ERROR: AccessibleAndroid requires TARGET_ARCH=x86_64" >&2
+  exit 6
+fi
+if [[ -n "${TARGET_2ND_ARCH:-}" ]]; then
+  echo "ERROR: AccessibleAndroid must be x86_64-only; secondary architecture detected: $TARGET_2ND_ARCH" >&2
+  exit 7
+fi
+echo "ANDROID_X86_64_ONLY_RUNTIME = PASS"
+
 # Build the Android-native image set rather than depending on Android-x86 or
 # AAropa's non-AOSP iso_img target. superimage pulls together the logical
 # partitions; target-files-package records the canonical releasetools input.
