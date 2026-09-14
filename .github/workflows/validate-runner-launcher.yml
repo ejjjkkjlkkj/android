@@ -1,0 +1,107 @@
+name: Validate Android runner launcher
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-runner-launcher:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Parse PowerShell runner launcher
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/start-android-build-runner.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -ne 0) {
+            $errors | Format-List -Force
+            throw "PowerShell parser found $($errors.Count) error(s)."
+          }
+          'POWERSHELL_RUNNER_LAUNCHER_PARSE = PASS'
+
+      - name: Parse Linux runner helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/start-android-build-runner.sh
+          bash -n scripts/install-android-build-runner-service.sh
+          echo 'LINUX_RUNNER_HELPERS_PARSE = PASS'
+
+      - name: Validate safe recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=scripts/start-android-build-runner.ps1
+          grep -Fq "[string]\$Distro = 'Debian'" "$script"
+          grep -Fq "[string]\$Repository = 'ejjjkkjlkkj/android'" "$script"
+          grep -Fq "actions-runner-android" "$script"
+          grep -Fq "ANDROID_BUILD_RUNNER=\$mode_name" "$script"
+          grep -Fq "Runner\\.Listener" "$script"
+          grep -Fq "Runner\\.Worker" "$script"
+          grep -Fq "sudo -n ./svc.sh start" "$script"
+          grep -Fq "fallback vers run.sh" "$script"
+          grep -Fq "gh auth status -h github.com" "$script"
+          grep -Fq "actions/runners" "$script"
+          grep -Fq "GITHUB_RUNNER_STATE=ONLINE" "$script"
+          grep -Fq "GITHUB_RUNNER_LABELS=" "$script"
+          grep -Fq "GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS" "$script"
+          grep -Fq "GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING" "$script"
+          grep -Fq "GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE" "$script"
+          if grep -Eiq '(config\.sh[[:space:]]+--url|remove[.]sh|--token)' "$script"; then
+            echo 'ERROR: runner launcher must not register, remove or reconfigure the GitHub runner.' >&2
+            exit 1
+          fi
+          echo 'RUNNER_LAUNCHER_SAFE_RECOVERY = PASS'
+
+      - name: Validate Linux stopped-service recovery contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=scripts/start-android-build-runner.sh
+          grep -Fq 'Runner\.Listener' "$script"
+          grep -Fq 'Runner\.Worker' "$script"
+          grep -Fq 'sudo -n ./svc.sh status 2>&1 || true' "$script"
+          grep -Fq 'sudo -n ./svc.sh start' "$script"
+          grep -Fq "finish_success 'SERVICE_STARTED'" "$script"
+          grep -Fq 'gh auth status -h github.com' "$script"
+          grep -Fq 'actions/runners' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=ONLINE' "$script"
+          grep -Fq 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE' "$script"
+          if grep -Eiq '(config\.sh|remove[.]sh|--token|gh api.*registration-token)' "$script"; then
+            echo 'ERROR: Linux recovery helper must not register, remove or reconfigure the GitHub runner.' >&2
+            exit 1
+          fi
+          echo 'LINUX_RUNNER_STOPPED_SERVICE_RECOVERY = PASS'
+
+      - name: Validate safe persistent service contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=scripts/install-android-build-runner-service.sh
+          grep -Fq 'actions-runner-android' "$script"
+          grep -Fq '[[ -s .runner ]]' "$script"
+          grep -Fq "!= 'systemd'" "$script"
+          grep -Fq './svc.sh status' "$script"
+          grep -Fq './svc.sh install "$runner_user"' "$script"
+          grep -Fq './svc.sh start' "$script"
+          grep -Fq 'Runner\.Listener' "$script"
+          grep -Fq 'actions_runner_services.conf' "$script"
+          grep -Fq 'ANDROID_BUILD_RUNNER_SERVICE=PASS' "$script"
+          if grep -Eiq '(config\.sh|remove[.]sh|--token|gh api.*registration-token)' "$script"; then
+            echo 'ERROR: service installer must never register, remove or reconfigure the GitHub runner.' >&2
+            exit 1
+          fi
+          echo 'RUNNER_SERVICE_INSTALLER_SAFE = PASS'

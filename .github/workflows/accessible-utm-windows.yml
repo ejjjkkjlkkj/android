@@ -212,7 +212,8 @@ jobs:
           $installer = Join-Path $env:RUNNER_TEMP 'qemu-w64-setup-20260811.exe'
           $qemuDir = Join-Path $env:RUNNER_TEMP 'qemu-portable'
           Remove-Item -LiteralPath $qemuDir -Recurse -Force -ErrorAction SilentlyContinue
-          Invoke-WebRequest -Uri $url -OutFile $installer
+          curl.exe --fail --location --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 900 --output $installer $url
+          if ($LASTEXITCODE -ne 0) { throw "QEMU installer download failed: $LASTEXITCODE" }
           $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA512).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw "QEMU installer SHA-512 mismatch: $actual" }
           Write-Host 'QEMU_INSTALLER_SHA512 = VERIFIED'

@@ -1,0 +1,87 @@
+name: Validate Android layout
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  layout:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify product and partition geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          products=device/accessibledroid/accessible_x86_64/AndroidProducts.mk
+          source config/vm.env
+          source config/editions.env
+          source config/upstream.env
+
+          value() {
+            local key="$1"
+            awk -v key="$key" '$1 == key && $2 == ":=" { print $3; exit }' "$board"
+          }
+
+          super_bytes="$(value BOARD_SUPER_PARTITION_SIZE)"
+          system_group="$(value BOARD_ACCESSIBLE_SYSTEM_DYNAMIC_PARTITIONS_SIZE)"
+          vendor_group="$(value BOARD_ACCESSIBLE_VENDOR_DYNAMIC_PARTITIONS_SIZE)"
+          userdata_bytes="$(value BOARD_USERDATAIMAGE_PARTITION_SIZE)"
+          boot_bytes="$(value BOARD_BOOTIMAGE_PARTITION_SIZE)"
+          init_boot_bytes="$(value BOARD_INIT_BOOT_IMAGE_PARTITION_SIZE)"
+          vendor_boot_bytes="$(value BOARD_VENDOR_BOOTIMAGE_PARTITION_SIZE)"
+
+          for n in "$super_bytes" "$system_group" "$vendor_group" "$userdata_bytes" "$boot_bytes" "$init_boot_bytes" "$vendor_boot_bytes"; do
+            [[ "$n" =~ ^[0-9]+$ ]]
+          done
+
+          mib=$((1024 * 1024))
+          disk_mib=$((VM_DISK_SIZE_GIB * 1024))
+          reserve_mib=4
+          expected_super=$((VM_SUPER_SIZE_MIB * mib))
+          expected_userdata=$((VM_USERDATA_SIZE_MIB * mib))
+          expected_boot=$((VM_BOOT_SIZE_MIB * mib))
+          expected_init_boot=$((VM_INIT_BOOT_SIZE_MIB * mib))
+          expected_vendor_boot=$((VM_VENDOR_BOOT_SIZE_MIB * mib))
+          groups_total=$((system_group + vendor_group))
+
+          fixed_partition_mib=$((
+            VM_BIOS_GRUB_SIZE_MIB + VM_ESP_SIZE_MIB +
+            (2 * VM_BOOT_SIZE_MIB) + (2 * VM_INIT_BOOT_SIZE_MIB) +
+            (2 * VM_VENDOR_BOOT_SIZE_MIB) + (2 * VM_VBMETA_SIZE_MIB) +
+            VM_SUPER_SIZE_MIB + VM_METADATA_SIZE_MIB + VM_MISC_SIZE_MIB +
+            VM_USERDATA_SIZE_MIB
+          ))
+          free_after_fixed_mib=$((disk_mib - fixed_partition_mib - reserve_mib))
+
+          test "$super_bytes" -eq "$expected_super"
+          test "$userdata_bytes" -eq "$expected_userdata"
+          test "$boot_bytes" -eq "$expected_boot"
+          test "$init_boot_bytes" -eq "$expected_init_boot"
+          test "$vendor_boot_bytes" -eq "$expected_vendor_boot"
+          test "$groups_total" -le "$super_bytes"
+          test "$fixed_partition_mib" -gt 0
+          test "$free_after_fixed_mib" -ge 0
+
+          grep -Fq "${AOSP_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" "$products"
+          grep -Fq "${GMS_PRODUCT}-${ANDROID_RELEASE_CONFIG}-userdebug" "$products"
+          grep -Fq 'PRODUCT_NAME := accessible_android_x86_64' device/accessibledroid/accessible_x86_64/accessible_android_x86_64.mk
+          grep -Fq 'PRODUCT_NAME := accessible_android_x86_64_gms' device/accessibledroid/accessible_x86_64/accessible_android_x86_64_gms.mk
+
+          echo "SUPER_BYTES=$super_bytes"
+          echo "DYNAMIC_GROUPS_TOTAL=$groups_total"
+          echo "DYNAMIC_GROUP_HEADROOM=$((super_bytes - groups_total))"
+          echo "USERDATA_BYTES=$userdata_bytes"
+          echo "DISK_SIZE_MIB=$disk_mib"
+          echo "FIXED_PARTITION_MIB=$fixed_partition_mib"
+          echo "GPT_RESERVE_MIB=$reserve_mib"
+          echo "FREE_AFTER_FIXED_MIB=$free_after_fixed_mib"
+          test "$free_after_fixed_mib" -eq 420
+          echo 'ANDROID_LAYOUT_ARITHMETIC = PASS'

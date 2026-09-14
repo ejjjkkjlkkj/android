@@ -2,8 +2,10 @@
 # Keep the Android 17 platform userspace based on AOSP. PC/Bliss repositories are
 # engineering references only and must never replace these platform product layers.
 
-# 64/32-bit x86_64 runtime and GSI-style system image.
-$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
+# AccessibleAndroid is deliberately x86_64-only. Inherit the canonical AOSP
+# 64-bit-only contract before any product chain that can reach core_minimal.mk;
+# this selects zygote64, disables 32-bit apps and keeps dexopt on dex2oat64.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_system.mk)
 
 # Full handheld/phone framework split across system_ext and product, following
@@ -37,6 +39,15 @@ $(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)
 
 # Accessibility is part of the base system and is independent of GMS.
 $(call inherit-product, vendor/accessibledroid/product/accessibility.mk)
+
+# generic_system.mk owns the system artifact namespace. These three privileged
+# accessibility packages are intentional AccessibleAndroid additions. Keep the
+# artifact-path contract enabled and allow only their dedicated directories,
+# including dexpreopt oat/vdex/art outputs generated below them.
+PRODUCT_ARTIFACT_PATH_REQUIREMENT_ALLOWED_LIST += \
+    system/priv-app/AccessibilityBootstrap/% \
+    system/priv-app/AccessibleTalkBack/% \
+    system/priv-app/AccessibleEspeakTts/%
 
 PRODUCT_DEVICE := accessible_x86_64
 PRODUCT_BRAND := AccessibleAndroid

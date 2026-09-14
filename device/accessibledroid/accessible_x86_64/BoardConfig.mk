@@ -4,6 +4,17 @@
 
 include device/generic/x86_64/BoardConfig.mk
 
+# AOSP's generic x86_64 board is dual-ABI by default and enables x86 as a
+# secondary architecture. AccessibleAndroid is x86_64-only: clear every
+# secondary-architecture input after importing the generic hardware baseline so
+# Soong does not instantiate an unnecessary 32-bit native dependency graph.
+TARGET_2ND_CPU_ABI :=
+TARGET_2ND_CPU_ABI2 :=
+TARGET_2ND_ARCH :=
+TARGET_2ND_ARCH_VARIANT :=
+TARGET_2ND_CPU_VARIANT :=
+TARGET_2ND_CPU_VARIANT_RUNTIME :=
+
 LOCAL_ACCESSIBLE_DEVICE := device/accessibledroid/accessible_x86_64
 
 # Real bootable GKI target. device/generic/x86_64 is intentionally kernel-less,
@@ -42,16 +53,27 @@ BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00/0000:00:06.0
 KERNEL_MODULE_DIR := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/modules
 KERNEL_MODULES := $(wildcard $(KERNEL_MODULE_DIR)/*.ko)
 
-# Keep first-stage init small: only modules which can be required to discover
-# the virtio system disk and provide entropy are copied to vendor_boot.
-ACCESSIBLE_FIRST_STAGE_MODULE_NAMES := \
-    virtio_pci_modern_dev.ko \
-    virtio_pci.ko \
-    virtio_blk.ko \
+# The Android 17 x86_64 GKI bzImage contains the core VirtIO PCI transport and
+# block driver used to discover the system disk. The official virtual-device
+# dist does not export virtio_pci.ko or virtio_blk.ko. Keep only first-stage
+# functionality that is actually delivered as a loadable module here.
+ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES := \
     virtio-rng.ko
-ACCESSIBLE_FIRST_STAGE_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
+
+# Kernel packaging can expose the modern/legacy PCI helpers as separate modules
+# or fold their functionality into the transport. Copy either helper into
+# vendor_boot when it exists so depmod can satisfy dependencies, but do not make
+# either helper a hard build requirement.
+ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES := \
+    virtio_pci_modern_dev.ko \
+    virtio_pci_legacy_dev.ko
+ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES := \
+    $(ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES) \
+    $(ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES)
+ACCESSIBLE_FIRST_STAGE_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
+ACCESSIBLE_FIRST_STAGE_LOAD_MODULES := $(foreach module,$(ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES),$(wildcard $(KERNEL_MODULE_DIR)/$(module)))
 BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(ACCESSIBLE_FIRST_STAGE_MODULES)
-BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_MODULES)
+BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_LOAD_MODULES)
 
 # Keep the complete module set available after /vendor is mounted. Limit the
 # automatic second-stage list to the VM devices needed by the initial product.

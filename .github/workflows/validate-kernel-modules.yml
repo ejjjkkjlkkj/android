@@ -1,0 +1,88 @@
+name: Validate kernel module contract
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  kernel-modules:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Verify boot-critical and runtime virtio modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          source config/kernel.env
+
+          board=device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          required=",${KERNEL_REQUIRED_VM_MODULES},"
+
+          # These are the loadable modules exported by the Android 17 x86_64
+          # virtual-device dist and required by the AccessibleAndroid VM profile.
+          required_modules=(
+            virtio-rng.ko
+            virtio-gpu.ko
+            virtio_dma_buf.ko
+            virtio_input.ko
+            virtio_net.ko
+            virtio_snd.ko
+          )
+
+          for module in "${required_modules[@]}"; do
+            case "$required" in
+              *",${module},"*) ;;
+              *)
+                echo "ERROR: missing required VM module contract: $module" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          # The core GKI bzImage provides the PCI transport and block driver;
+          # the official dist does not export these as standalone .ko files.
+          for builtin in virtio_pci.ko virtio_blk.ko; do
+            case "$required" in
+              *",${builtin},"*)
+                echo "ERROR: built-in GKI driver is incorrectly hard-required as a module: $builtin" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          # PCI helper packaging varies across Android 17 kernel revisions.
+          # They may be separate .ko files, so stage them when present, but they
+          # must never make the kernel build fail when the transport is packaged
+          # without separate helpers.
+          for optional in virtio_pci_modern_dev.ko virtio_pci_legacy_dev.ko; do
+            case "$required" in
+              *",${optional},"*)
+                echo "ERROR: optional PCI helper is incorrectly hard-required: $optional" >&2
+                exit 1
+                ;;
+            esac
+            grep -Fq "$optional" "$board"
+          done
+
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_COPY_MODULE_NAMES :=' "$board"
+          grep -Fq 'ACCESSIBLE_FIRST_STAGE_LOAD_MODULES :=' "$board"
+          grep -Fq 'virtio-rng.ko' "$board"
+
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES := $(ACCESSIBLE_FIRST_STAGE_MODULES)' "$board"
+          grep -Fq 'BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_LOAD_MODULES)' "$board"
+          grep -Fq 'BOARD_VENDOR_KERNEL_MODULES :=' "$board"
+          for module in virtio-gpu.ko virtio-rng.ko virtio_dma_buf.ko virtio_input.ko virtio_net.ko virtio_snd.ko; do
+            grep -Fq "$module" "$board"
+          done
+
+          grep -Fq 'required staged VM module is missing' scripts/stage-kernel.sh
+
+          echo "KERNEL_REQUIRED_VM_MODULES=$KERNEL_REQUIRED_VM_MODULES"
+          echo 'ANDROID_VIRTIO_KERNEL_CONTRACT = PASS'

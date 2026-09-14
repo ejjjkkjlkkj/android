@@ -50,6 +50,21 @@ apk_manifest_tree() {
   "$AAPT2" dump xmltree "$1" --file AndroidManifest.xml
 }
 
+apk_has_native_lib() {
+  local apk_path="$1"
+  local abi="$2"
+  local library_name="$3"
+  python3 - "$apk_path" "$abi" "$library_name" <<'PY'
+import sys
+import zipfile
+
+apk_path, abi, library_name = sys.argv[1:]
+entry = f"lib/{abi}/{library_name}"
+with zipfile.ZipFile(apk_path) as archive:
+    raise SystemExit(0 if entry in archive.namelist() else 1)
+PY
+}
+
 accessibility_build_fingerprint() {
   {
     sha256sum "$ROOT_DIR/config/accessibility-upstreams.env"
@@ -61,6 +76,7 @@ accessibility_build_fingerprint() {
     printf 'talkback_service=%s\n' "$TALKBACK_SERVICE"
     printf 'espeak_package=%s\n' "$ESPEAK_PACKAGE"
     printf 'gradle=%s\n' "$TALKBACK_GRADLE_VERSION"
+    printf 'guest_abi=x86_64\n'
   } | sha256sum | awk '{print $1}'
 }
 
@@ -84,6 +100,13 @@ verify_accessibility_apks() {
   espeak_manifest_tree="$(apk_manifest_tree "$DEST_DIR/espeak-ng.apk")"
   grep -Fq "$talkback_service_class" <<<"$talkback_manifest_tree" || return 1
   grep -Fq 'android.intent.action.TTS_SERVICE' <<<"$espeak_manifest_tree" || return 1
+
+  # AccessibleAndroid is x86_64. TalkBack eagerly constructs its braille stack,
+  # which loads brlttywrap at service startup, so an ARM-only APK is unusable
+  # even when the Java package and accessibility-service manifest are valid.
+  apk_has_native_lib "$DEST_DIR/talkback.apk" x86_64 libbrlttywrap.so || return 1
+  apk_has_native_lib "$DEST_DIR/talkback.apk" x86_64 liblouiswrap.so || return 1
+  apk_has_native_lib "$DEST_DIR/espeak-ng.apk" x86_64 libttsespeak.so || return 1
   return 0
 }
 
@@ -97,8 +120,10 @@ if [[ "$REUSE_ACCESSIBILITY_APPS" == "1" && -s "$CACHE_MARKER" ]]; then
     echo "ACCESSIBILITY_APPS = BUILT"
     echo "TALKBACK_APK_PACKAGE = $TALKBACK_BUILT_PACKAGE"
     echo "TALKBACK_SERVICE = VERIFIED"
+    echo "TALKBACK_X86_64_NATIVE = VERIFIED"
     echo "ESPEAK_APK_PACKAGE = $ESPEAK_BUILT_PACKAGE"
     echo "ESPEAK_TTS_SERVICE = VERIFIED"
+    echo "ESPEAK_X86_64_NATIVE = VERIFIED"
     echo "OUTPUT = $DEST_DIR"
     cat "$DEST_DIR/SHA256SUMS.generated"
     exit 0
@@ -118,10 +143,26 @@ build_talkback() {
   echo "==> Build TalkBack from pinned source"
   cd "$SRC_ROOT/talkback"
 
-  # ACCESSIBLEANDROID_TALKBACK_JVM17_ROOT_PATCH
-  # Restore pinned upstream source before applying our reproducible build-only patch.
+  # Restore pinned upstream source before applying reproducible build-only
+  # patches. Upstream currently restricts native TalkBack/Braille libraries to
+  # ARM, while AccessibleAndroid runs x86_64.
   git reset --hard "$TALKBACK_REV" >/dev/null
 
+  python3 - <<'PY'
+from pathlib import Path
+
+path = Path("shared.gradle")
+text = path.read_text(encoding="utf-8")
+old = 'abiFilters "armeabi-v7a", "arm64-v8a"'
+new = 'abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"'
+if old not in text:
+    raise SystemExit("ERROR: pinned TalkBack abiFilters contract changed")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+PY
+  grep -Fq 'abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"' shared.gradle \
+    || fail "TalkBack x86_64 ABI patch was not applied"
+
+  # ACCESSIBLEANDROID_TALKBACK_JVM17_ROOT_PATCH
   if ! grep -Fq 'ACCESSIBLEANDROID_KOTLIN_JVM17_SUBPROJECTS' build.gradle; then
     cat >> build.gradle <<'GRADLEPATCH'
 
@@ -140,6 +181,7 @@ GRADLEPATCH
   fi
 
   echo "TALKBACK_KOTLIN_JVM_TARGET = 17"
+  echo "TALKBACK_NATIVE_ABIS = armeabi-v7a,arm64-v8a,x86_64"
   ANDROID_SDK="$SDK_ROOT" GRADLE_DEBUG='' GRADLE_STACKTRACE='' bash ./build.sh
 
   local apk
@@ -178,10 +220,14 @@ TalkBack revision: $TALKBACK_REV
 TalkBack configured package: $TALKBACK_PACKAGE
 TalkBack built APK package: $TALKBACK_BUILT_PACKAGE
 TalkBack service: $TALKBACK_SERVICE
+TalkBack required guest ABI: x86_64
+TalkBack x86_64 brlttywrap: verified
+TalkBack x86_64 louiswrap: verified
 eSpeak NG URL: $ESPEAK_NG_URL
 eSpeak NG revision: $ESPEAK_NG_REV
 eSpeak configured package: $ESPEAK_PACKAGE
-eSpeak built APK package: $ESPEAK_BUILT_PACKAGE
+eSpeak required guest ABI: x86_64
+eSpeak x86_64 ttsespeak: verified
 EOF
 
 printf '%s\n' "$BUILD_FINGERPRINT" > "$CACHE_MARKER"
@@ -190,7 +236,9 @@ echo "ACCESSIBILITY_APPS_FINGERPRINT = $BUILD_FINGERPRINT"
 echo "ACCESSIBILITY_APPS = BUILT"
 echo "TALKBACK_APK_PACKAGE = $TALKBACK_BUILT_PACKAGE"
 echo "TALKBACK_SERVICE = VERIFIED"
+echo "TALKBACK_X86_64_NATIVE = VERIFIED"
 echo "ESPEAK_APK_PACKAGE = $ESPEAK_BUILT_PACKAGE"
 echo "ESPEAK_TTS_SERVICE = VERIFIED"
+echo "ESPEAK_X86_64_NATIVE = VERIFIED"
 echo "OUTPUT = $DEST_DIR"
 cat "$DEST_DIR/SHA256SUMS.generated"

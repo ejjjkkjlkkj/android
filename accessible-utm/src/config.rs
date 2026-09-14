@@ -25,6 +25,7 @@ impl Architecture {
         }
     }
 
+    #[cfg(test)]
     pub fn cli_name(self) -> &'static str {
         match self {
             Self::X86_64 => "x86_64",
@@ -69,6 +70,7 @@ impl GuestProfile {
         }
     }
 
+    #[cfg(test)]
     pub fn cli_name(self) -> &'static str {
         match self {
             Self::AccessibleAndroid => "accessible-android",
@@ -120,14 +122,28 @@ fn bundled_file(relative: &[&str]) -> Option<String> {
     path.is_file().then(|| path.to_string_lossy().into_owned())
 }
 
-fn bundled_x86_firmware() -> Option<String> {
-    for relative in [
-        &["qemu", "share", "edk2-x86_64-code.fd"][..],
-        &["qemu", "edk2-x86_64-code.fd"][..],
-        &["qemu", "share", "edk2-i386-code.fd"][..],
-    ] {
-        if let Some(path) = bundled_file(relative) {
-            return Some(path);
+fn firmware_names(architecture: Architecture) -> &'static [&'static str] {
+    match architecture {
+        Architecture::X86_64 => &["edk2-x86_64-code.fd", "edk2-i386-code.fd"],
+        Architecture::Aarch64 => &["edk2-aarch64-code.fd"],
+        Architecture::Riscv64 => &[
+            "edk2-riscv-code.fd",
+            "edk2-riscv64-code.fd",
+            "edk2-riscv.fd",
+        ],
+    }
+}
+
+pub fn bundled_firmware(architecture: Architecture) -> Option<String> {
+    for name in firmware_names(architecture) {
+        for relative in [
+            &["qemu", "share", *name][..],
+            &["qemu", "share", "qemu", *name][..],
+            &["qemu", *name][..],
+        ] {
+            if let Some(path) = bundled_file(relative) {
+                return Some(path);
+            }
         }
     }
     None
@@ -152,7 +168,11 @@ impl Default for VmConfig {
             qemu_binary: String::new(),
             iso_path,
             disk_path,
-            firmware_path: bundled_x86_firmware().unwrap_or_default(),
+            // Leave this empty unless the user explicitly overrides it. QEMU
+            // argument generation resolves the bundled firmware dynamically
+            // from the selected architecture, so switching from x86_64 to
+            // ARM64/RISC-V can never retain an incompatible x86 firmware.
+            firmware_path: String::new(),
             memory_mib: 8192,
             cpu_count: 6,
             qmp_port: 4444,
@@ -192,15 +212,15 @@ impl VmConfig {
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "Cannot create VM configuration directory '{}': {error}",
-                        parent.display()
-                    )
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "Cannot create VM configuration directory '{}': {error}",
+                    parent.display()
+                )
+            })?;
         }
 
         let json = self.to_json_pretty()?;
@@ -232,10 +252,7 @@ impl VmConfig {
 
     pub fn load(path: &Path) -> Result<Self, String> {
         let text = fs::read_to_string(path).map_err(|error| {
-            format!(
-                "Cannot read VM configuration '{}': {error}",
-                path.display()
-            )
+            format!("Cannot read VM configuration '{}': {error}", path.display())
         })?;
         Self::from_json(&text)
     }
@@ -262,6 +279,13 @@ mod tests {
         assert_eq!(restored.iso_path, "AccessibleAndroid.iso");
         assert_eq!(restored.memory_mib, 8192);
         assert_eq!(restored.cpu_count, 6);
+    }
+
+    #[test]
+    fn firmware_candidates_cover_every_supported_architecture() {
+        assert_eq!(firmware_names(Architecture::X86_64)[0], "edk2-x86_64-code.fd");
+        assert_eq!(firmware_names(Architecture::Aarch64)[0], "edk2-aarch64-code.fd");
+        assert!(firmware_names(Architecture::Riscv64).contains(&"edk2-riscv-code.fd"));
     }
 
     #[test]
@@ -300,12 +324,16 @@ mod tests {
             std::process::id()
         ));
 
-        let mut first = VmConfig::default();
-        first.name = "First".to_owned();
+        let first = VmConfig {
+            name: "First".to_owned(),
+            ..VmConfig::default()
+        };
         first.save(&path).unwrap();
 
-        let mut second = VmConfig::default();
-        second.name = "Second".to_owned();
+        let second = VmConfig {
+            name: "Second".to_owned(),
+            ..VmConfig::default()
+        };
         second.save(&path).unwrap();
 
         let restored = VmConfig::load(&path).unwrap();
