@@ -37,8 +37,12 @@ jobs:
           script=scripts/start-android-build-runner.ps1
           grep -Fq "[string]\$Distro = 'Debian'" "$script"
           grep -Fq "actions-runner-android" "$script"
+          grep -Fq "ANDROID_BUILD_RUNNER=SERVICE_STARTED" "$script"
           grep -Fq "ANDROID_BUILD_RUNNER=DETACHED_STARTED" "$script"
-          grep -Fq "Runner\\.(Listener|Worker)" "$script"
+          grep -Fq "Runner\\.Listener" "$script"
+          grep -Fq "Runner\\.Worker" "$script"
+          grep -Fq "sudo -n ./svc.sh start" "$script"
+          grep -Fq "fallback vers run.sh" "$script"
           if grep -Eiq '(config\.sh[[:space:]]+--url|remove[.]sh|--token)' "$script"; then
             echo 'ERROR: runner launcher must not register, remove or reconfigure the GitHub runner.' >&2
             exit 1
