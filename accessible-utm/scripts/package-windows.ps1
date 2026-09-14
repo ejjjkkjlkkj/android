@@ -38,6 +38,19 @@ function Require-File {
     }
 }
 
+function Find-QemuFirmware {
+    param([string[]]$Names)
+    foreach ($name in $Names) {
+        foreach ($relative in @("share\$name", "share\qemu\$name", $name)) {
+            $candidate = Join-Path $qemuSource $relative
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return $candidate
+            }
+        }
+    }
+    return $null
+}
+
 if ($SourceDateEpoch -le 0) {
     if (-not [string]::IsNullOrWhiteSpace($env:SOURCE_DATE_EPOCH)) {
         $parsedEpoch = 0L
@@ -77,14 +90,22 @@ foreach ($name in $qemuRequired) {
     Require-File -Path (Join-Path $qemuSource $name) -Label 'Bundled QEMU component'
 }
 
-$firmwareCandidates = @(
-    (Join-Path $qemuSource 'share\edk2-x86_64-code.fd'),
-    (Join-Path $qemuSource 'share\qemu\edk2-x86_64-code.fd'),
-    (Join-Path $qemuSource 'edk2-x86_64-code.fd')
-)
-$qemuFirmware = $firmwareCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ([string]::IsNullOrWhiteSpace($qemuFirmware)) {
-    throw "Bundled QEMU x86_64 UEFI firmware is missing. Checked: $($firmwareCandidates -join ', ')"
+$qemuFirmwareX86 = Find-QemuFirmware -Names @('edk2-x86_64-code.fd', 'edk2-i386-code.fd')
+$qemuFirmwareArm64 = Find-QemuFirmware -Names @('edk2-aarch64-code.fd')
+$qemuFirmwareRiscvCode = Find-QemuFirmware -Names @('edk2-riscv-code.fd', 'edk2-riscv64-code.fd', 'edk2-riscv.fd')
+$qemuFirmwareRiscvVars = Find-QemuFirmware -Names @('edk2-riscv-vars.fd', 'edk2-riscv64-vars.fd')
+
+if ([string]::IsNullOrWhiteSpace($qemuFirmwareX86)) {
+    throw 'Bundled QEMU x86_64 UEFI firmware is missing.'
+}
+if ([string]::IsNullOrWhiteSpace($qemuFirmwareArm64)) {
+    throw 'Bundled QEMU ARM64 UEFI firmware is missing.'
+}
+if ([string]::IsNullOrWhiteSpace($qemuFirmwareRiscvCode)) {
+    throw 'Bundled QEMU RISC-V UEFI code firmware is missing.'
+}
+if ([string]::IsNullOrWhiteSpace($qemuFirmwareRiscvVars)) {
+    throw 'Bundled QEMU RISC-V UEFI variable store is missing.'
 }
 
 $qemuVersionText = (& (Join-Path $qemuSource 'qemu-system-x86_64.exe') --version | Select-Object -First 1 | Out-String).Trim()
@@ -145,17 +166,50 @@ foreach ($relative in $required) {
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing runtime file: $relative" }
   Write-Host "PASS $relative"
 }
-$firmware = @(
-  'qemu\share\edk2-x86_64-code.fd',
-  'qemu\share\qemu\edk2-x86_64-code.fd',
-  'qemu\edk2-x86_64-code.fd'
-) | ForEach-Object { Join-Path $PSScriptRoot $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ([string]::IsNullOrWhiteSpace($firmware)) { throw 'Bundled x86_64 UEFI firmware is missing.' }
-Write-Host "PASS UEFI firmware: $firmware"
-& (Join-Path $PSScriptRoot 'AccessibleUTM.exe') --version
+
+function Find-RuntimeFirmware {
+  param([string[]]$Names)
+  foreach ($name in $Names) {
+    foreach ($relative in @("qemu\share\$name", "qemu\share\qemu\$name", "qemu\$name")) {
+      $candidate = Join-Path $PSScriptRoot $relative
+      if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+  }
+  return $null
+}
+
+$x86Firmware = Find-RuntimeFirmware -Names @('edk2-x86_64-code.fd','edk2-i386-code.fd')
+$armFirmware = Find-RuntimeFirmware -Names @('edk2-aarch64-code.fd')
+$riscvCode = Find-RuntimeFirmware -Names @('edk2-riscv-code.fd','edk2-riscv64-code.fd','edk2-riscv.fd')
+$riscvVars = Find-RuntimeFirmware -Names @('edk2-riscv-vars.fd','edk2-riscv64-vars.fd')
+if ([string]::IsNullOrWhiteSpace($x86Firmware)) { throw 'Bundled x86_64 UEFI firmware is missing.' }
+if ([string]::IsNullOrWhiteSpace($armFirmware)) { throw 'Bundled ARM64 UEFI firmware is missing.' }
+if ([string]::IsNullOrWhiteSpace($riscvCode)) { throw 'Bundled RISC-V UEFI code firmware is missing.' }
+if ([string]::IsNullOrWhiteSpace($riscvVars)) { throw 'Bundled RISC-V UEFI variable store is missing.' }
+Write-Host "PASS x86_64 UEFI firmware: $x86Firmware"
+Write-Host "PASS ARM64 UEFI firmware: $armFirmware"
+Write-Host "PASS RISC-V UEFI code: $riscvCode"
+Write-Host "PASS RISC-V UEFI vars: $riscvVars"
+
+$app = Join-Path $PSScriptRoot 'AccessibleUTM.exe'
+& $app --version
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-x86_64.exe') --version | Select-Object -First 1
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-aarch64.exe') --version | Select-Object -First 1
 & (Join-Path $PSScriptRoot 'qemu\qemu-system-riscv64.exe') --version | Select-Object -First 1
+
+$x86Command = (& $app --profile linux --arch x86_64 --disk x86.qcow2 --print-qemu-command | Out-String)
+$armCommand = (& $app --profile linux --arch aarch64 --disk arm64.qcow2 --print-qemu-command | Out-String)
+$riscvCommand = (& $app --profile linux --arch riscv64 --disk riscv64.qcow2 --print-qemu-command | Out-String)
+if ($x86Command -notlike "*$([IO.Path]::GetFileName($x86Firmware))*") { throw "x86_64 command did not select bundled UEFI.`n$x86Command" }
+if ($armCommand -notlike "*$([IO.Path]::GetFileName($armFirmware))*") { throw "ARM64 command did not select bundled UEFI.`n$armCommand" }
+if ($riscvCommand -notlike "*$([IO.Path]::GetFileName($riscvCode))*") { throw "RISC-V command did not select bundled UEFI code.`n$riscvCommand" }
+if ($riscvCommand -notlike "*$([IO.Path]::GetFileName($riscvVars))*") { throw "RISC-V command did not select bundled UEFI vars.`n$riscvCommand" }
+if ($riscvCommand -notlike '*pflash0=pflash0*' -or $riscvCommand -notlike '*pflash1=pflash1*') {
+  throw "RISC-V command does not attach both EDK2 flash devices.`n$riscvCommand"
+}
+if ($riscvCommand -match '(?<!\S)-bios(?:\s|$)') { throw "RISC-V command incorrectly uses -bios instead of pflash.`n$riscvCommand" }
+Write-Host 'ACCESSIBLE_UTM_MULTI_ARCH_UEFI = PASS'
+
 $image = Join-Path $PSScriptRoot 'images\AccessibleAndroid.qcow2'
 if (Test-Path -LiteralPath $image -PathType Leaf) { Write-Host 'PASS images\AccessibleAndroid.qcow2' }
 Write-Host 'ACCESSIBLE_UTM_PORTABLE_RUNTIME = PASS'
@@ -255,7 +309,10 @@ $manifest = [ordered]@{
     architecture = 'x64'
     qemu_version = $qemuVersion
     qemu_runtime = 'bundled'
-    qemu_firmware = [System.IO.Path]::GetRelativePath($qemuSource, $qemuFirmware).Replace('\', '/')
+    qemu_firmware = [System.IO.Path]::GetRelativePath($qemuSource, $qemuFirmwareX86).Replace('\', '/')
+    qemu_firmware_aarch64 = [System.IO.Path]::GetRelativePath($qemuSource, $qemuFirmwareArm64).Replace('\', '/')
+    qemu_firmware_riscv_code = [System.IO.Path]::GetRelativePath($qemuSource, $qemuFirmwareRiscvCode).Replace('\', '/')
+    qemu_firmware_riscv_vars = [System.IO.Path]::GetRelativePath($qemuSource, $qemuFirmwareRiscvVars).Replace('\', '/')
     qemu_installer = 'qemu-w64-setup-20260811.exe'
     qemu_installer_sha512 = '5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543'
     install_mode = 'portable-or-per-user'
@@ -310,7 +367,7 @@ finally { $zipStream.Dispose() }
 $zipHash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host 'ACCESSIBLE_UTM_PORTABLE_PACKAGE = PASS'
 Write-Host 'ACCESSIBLE_UTM_BUNDLED_QEMU = PASS'
-Write-Host 'ACCESSIBLE_UTM_BUNDLED_UEFI = PASS'
+Write-Host 'ACCESSIBLE_UTM_BUNDLED_UEFI_ALL_ARCH = PASS'
 Write-Host 'ACCESSIBLE_UTM_PER_USER_INSTALLER = PASS'
 Write-Host 'ACCESSIBLE_UTM_PACKAGE_REPRODUCIBLE_INPUTS = PASS'
 Write-Host "QEMU_VERSION = $qemuVersion"
