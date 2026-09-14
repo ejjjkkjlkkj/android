@@ -4,6 +4,17 @@
 
 include device/generic/x86_64/BoardConfig.mk
 
+# AOSP's generic x86_64 board is dual-ABI by default and enables x86 as a
+# secondary architecture. AccessibleAndroid is x86_64-only: clear every
+# secondary-architecture input after importing the generic hardware baseline so
+# Soong does not instantiate an unnecessary 32-bit native dependency graph.
+TARGET_2ND_CPU_ABI :=
+TARGET_2ND_CPU_ABI2 :=
+TARGET_2ND_ARCH :=
+TARGET_2ND_ARCH_VARIANT :=
+TARGET_2ND_CPU_VARIANT :=
+TARGET_2ND_CPU_VARIANT_RUNTIME :=
+
 LOCAL_ACCESSIBLE_DEVICE := device/accessibledroid/accessible_x86_64
 
 # Real bootable GKI target. device/generic/x86_64 is intentionally kernel-less,
