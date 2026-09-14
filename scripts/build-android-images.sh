@@ -191,11 +191,8 @@ echo "ANDROID_X86_64_ONLY_RUNTIME = PASS"
 # soong_ui to panic before it has a chance to regenerate the Ninja graph.
 # Detect that stale state and reset only the derived Soong metadata; the
 # synchronized AOSP checkout and reusable kernel/app caches remain intact.
-SOONG_GRAPH="$AOSP_DIR/out/soong/build.$PRODUCT.0.ninja"
-if [[ -d "$AOSP_DIR/out/soong" && ! -s "$SOONG_GRAPH" ]]; then
-  rm -rf "$AOSP_DIR/out/soong" "$AOSP_DIR/out/.module_paths"
-  echo "AOSP_SOONG_STATE_RESET = PASS (incomplete graph)"
-fi
+rm -rf "$AOSP_DIR/out/soong" "$AOSP_DIR/out/.module_paths"
+echo "AOSP_SOONG_STATE_RESET = PASS (fresh graph)"
 
 # Build the Android-native image set rather than depending on Android-x86 or
 # AAropa's non-AOSP iso_img target. superimage pulls together the logical
