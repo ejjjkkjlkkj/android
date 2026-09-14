@@ -42,17 +42,17 @@ BOARD_BOOTCONFIG += androidboot.boot_devices=pci0000:00/0000:00:06.0
 KERNEL_MODULE_DIR := $(LOCAL_ACCESSIBLE_DEVICE)/prebuilt/modules
 KERNEL_MODULES := $(wildcard $(KERNEL_MODULE_DIR)/*.ko)
 
-# Keep first-stage init small. These top-level modules are required to discover
-# the virtio system disk and provide entropy on every supported kernel dist.
+# The Android 17 x86_64 GKI bzImage contains the core VirtIO PCI transport and
+# block driver used to discover the system disk. The official virtual-device
+# dist does not export virtio_pci.ko or virtio_blk.ko. Keep only first-stage
+# functionality that is actually delivered as a loadable module here.
 ACCESSIBLE_FIRST_STAGE_REQUIRED_MODULE_NAMES := \
-    virtio_pci.ko \
-    virtio_blk.ko \
     virtio-rng.ko
 
 # Kernel packaging can expose the modern/legacy PCI helpers as separate modules
 # or fold their functionality into the transport. Copy either helper into
-# vendor_boot when it exists so depmod can satisfy virtio_pci dependencies, but
-# do not make either helper a hard build requirement.
+# vendor_boot when it exists so depmod can satisfy dependencies, but do not make
+# either helper a hard build requirement.
 ACCESSIBLE_FIRST_STAGE_OPTIONAL_MODULE_NAMES := \
     virtio_pci_modern_dev.ko \
     virtio_pci_legacy_dev.ko
