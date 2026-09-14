@@ -11,6 +11,7 @@ on:
       - 'config/toolchain.env'
       - 'scripts/build-accessibility-apps.sh'
       - 'scripts/build-from-zero.sh'
+      - 'scripts/build-android-images.sh'
       - 'device/accessibledroid/**'
       - 'vendor/accessibledroid/**'
   workflow_dispatch:
@@ -44,22 +45,32 @@ jobs:
           cpus=$(nproc)
           free_gib=$(df -Pk . | awk 'NR==2 {print int($4 / 1024 / 1024)}')
 
+          # Soong graph analysis is the dominant memory risk. Keep AOSP at -j2
+          # on the 32 GiB-class WSL runner while allowing sync/kernel work to
+          # use modestly higher parallelism.
           if (( ram_gib < 16 )); then
+            jobs=1
+            sync_jobs=2
+            kernel_jobs=2
+          elif (( ram_gib <= 36 )); then
             jobs=2
-          elif (( ram_gib < 32 )); then
-            jobs=4
+            sync_jobs=4
+            kernel_jobs=4
           elif (( ram_gib < 64 )); then
             jobs=6
+            sync_jobs=8
+            kernel_jobs=4
           else
             jobs=12
+            sync_jobs=8
+            kernel_jobs=4
           fi
           (( jobs > cpus )) && jobs=$cpus
+          (( sync_jobs > cpus )) && sync_jobs=$cpus
+          (( kernel_jobs > cpus )) && kernel_jobs=$cpus
           (( jobs < 1 )) && jobs=1
-
-          sync_jobs=$jobs
-          (( sync_jobs > 8 )) && sync_jobs=8
-          kernel_jobs=$jobs
-          (( kernel_jobs > 4 )) && kernel_jobs=4
+          (( sync_jobs < 1 )) && sync_jobs=1
+          (( kernel_jobs < 1 )) && kernel_jobs=1
 
           echo "ANDROID_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
           echo "SYNC_JOBS=$sync_jobs" >> "$GITHUB_ENV"
