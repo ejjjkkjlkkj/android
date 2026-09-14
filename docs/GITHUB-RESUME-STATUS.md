@@ -26,8 +26,7 @@ Runner recovery:
 - when `gh` is authenticated, the launchers can report whether GitHub sees the runner online and expose its labels, including `android-build`;
 - `scripts/install-android-build-runner-service.sh` can explicitly install that existing runner as the official Linux systemd service using `svc.sh`, then start it and verify a stable `Runner.Listener`;
 - the service installer never runs automatically from CI and never uses a registration/removal token;
-- on Debian it applies the GitHub-recommended `needrestart` exclusion for `actions.runner.*.service` when `needrestart` is present;
-- the runner launcher/service contracts, PowerShell parse, Bash parse and repository ShellCheck all pass on head `0955051bd2c0db11f6e95b1901cb88edd5b0592f`.
+- on Debian it applies the GitHub-recommended `needrestart` exclusion for `actions.runner.*.service` when `needrestart` is present.
 
 Evidence from the latest completed real build attempt:
 
@@ -40,13 +39,14 @@ Evidence from the latest completed real build attempt:
 - failure occurred during a single `soong_build` graph-analysis process after severe memory stalls, ending with signal 9 / exit 137;
 - that attempt still had `TARGET_2ND_ARCH=x86`, so the branch now removes the unnecessary 32-bit native graph in addition to the memory protections.
 
-Hosted validation on `0955051bd2c0db11f6e95b1901cb88edd5b0592f`:
+Hosted validation:
 
-- 9/9 PR workflows: PASS;
+- code head `0955051bd2c0db11f6e95b1901cb88edd5b0592f`: 9/9 PR workflows PASS;
 - `Validate repository`: PASS, including Bash parse and ShellCheck;
 - `Validate x86_64-only product`: PASS;
 - `Validate Android runner launcher`: PASS, including stopped-service recovery and persistent service safety;
-- Android layout, accessibility boot, APK cache, kernel cache, kernel module and VM hardware contracts: PASS.
+- Android layout, accessibility boot, APK cache, kernel cache, kernel module and VM hardware contracts: PASS;
+- documentation-only status commit after those code validations: `3c7b8d7b958a1ab9f500d865fcf17428ce3cc41e`, also 9/9 PR workflows PASS.
 
 Current gate:
 
