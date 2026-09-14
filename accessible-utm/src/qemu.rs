@@ -1,4 +1,4 @@
-use crate::config::{Architecture, GuestProfile, VmConfig, bundled_firmware};
+use crate::config::{bundled_firmware, Architecture, GuestProfile, VmConfig};
 use crate::embedded;
 use std::env;
 use std::path::Path;
@@ -129,6 +129,18 @@ pub fn disk_format(path: &str) -> Result<&'static str, String> {
     }
 }
 
+fn escape_qemu_keyval_path(path: &str) -> String {
+    path.replace(',', ",,")
+}
+
+fn riscv_vars_firmware(code_path: &str) -> Option<String> {
+    let code = Path::new(code_path);
+    let file_name = code.file_name()?.to_str()?;
+    let prefix = file_name.strip_suffix("-code.fd")?;
+    let vars = code.with_file_name(format!("{prefix}-vars.fd"));
+    vars.is_file().then(|| vars.to_string_lossy().into_owned())
+}
+
 pub fn quote_for_display(value: &str) -> String {
     if value.is_empty() || value.chars().any(char::is_whitespace) {
         format!("\"{}\"", value.replace('"', "\\\""))
@@ -178,15 +190,50 @@ fn add_accessible_android_devices(args: &mut Vec<String>) {
 }
 
 pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
+    let firmware = if config.firmware_path.trim().is_empty() {
+        bundled_firmware(config.architecture)
+    } else {
+        Some(config.firmware_path.trim().to_owned())
+    };
+
+    let mut machine_arg = format!(
+        "{},accel={}",
+        machine(config.architecture),
+        accelerator(config.architecture)
+    );
+    let mut firmware_args = Vec::new();
+
+    if let Some(firmware_path) = firmware.as_deref() {
+        if config.architecture == Architecture::Riscv64 {
+            machine_arg.push_str(",pflash0=pflash0");
+            firmware_args.extend([
+                "-blockdev".to_owned(),
+                format!(
+                    "node-name=pflash0,driver=file,read-only=on,filename={}",
+                    escape_qemu_keyval_path(firmware_path)
+                ),
+            ]);
+
+            if let Some(vars_path) = riscv_vars_firmware(firmware_path) {
+                machine_arg.push_str(",pflash1=pflash1");
+                firmware_args.extend([
+                    "-blockdev".to_owned(),
+                    format!(
+                        "node-name=pflash1,driver=file,filename={}",
+                        escape_qemu_keyval_path(&vars_path)
+                    ),
+                ]);
+            }
+        } else {
+            firmware_args.extend(["-bios".to_owned(), firmware_path.to_owned()]);
+        }
+    }
+
     let mut args = vec![
         "-name".to_owned(),
         config.name.clone(),
         "-machine".to_owned(),
-        format!(
-            "{},accel={}",
-            machine(config.architecture),
-            accelerator(config.architecture)
-        ),
+        machine_arg,
         "-m".to_owned(),
         config.memory_mib.clamp(1024, 65536).to_string(),
         "-smp".to_owned(),
@@ -196,23 +243,14 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
         "-monitor".to_owned(),
         "none".to_owned(),
     ];
-
-    let firmware = if config.firmware_path.trim().is_empty() {
-        bundled_firmware(config.architecture)
-    } else {
-        Some(config.firmware_path.trim().to_owned())
-    };
-    if let Some(firmware_path) = firmware {
-        args.push("-bios".to_owned());
-        args.push(firmware_path);
-    }
+    args.extend(firmware_args);
 
     if !config.disk_path.trim().is_empty() {
         let format = disk_format(config.disk_path.trim())?;
         args.push("-drive".to_owned());
         args.push(format!(
             "if=none,id={ANDROID_OS_DISK_ID},file={},format={format},cache=writeback",
-            config.disk_path.trim().replace(',', ",,")
+            escape_qemu_keyval_path(config.disk_path.trim())
         ));
         args.push("-device".to_owned());
 
@@ -317,6 +355,29 @@ mod tests {
         let args = build_args(&config).unwrap();
         let firmware = args.windows(2).find(|pair| pair[0] == "-bios").unwrap();
         assert_eq!(firmware[1], "custom-uefi.fd");
+    }
+
+    #[test]
+    fn riscv_uefi_uses_pflash_instead_of_bios() {
+        let config = VmConfig {
+            architecture: Architecture::Riscv64,
+            firmware_path: "edk2-riscv-code.fd".to_owned(),
+            disk_path: "linux-riscv64.qcow2".to_owned(),
+            profile: GuestProfile::Linux,
+            ..VmConfig::default()
+        };
+        let args = build_args(&config).unwrap();
+        assert!(!args.iter().any(|arg| arg == "-bios"));
+        assert!(
+            args.windows(2).any(|pair| {
+                pair[0] == "-machine" && pair[1].contains("virt,accel=tcg,pflash0=pflash0")
+            })
+        );
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "-blockdev"
+                && pair[1]
+                    == "node-name=pflash0,driver=file,read-only=on,filename=edk2-riscv-code.fd"
+        }));
     }
 
     #[test]
