@@ -108,6 +108,7 @@ fi
 
 if [[ "$CONFIGURE_NEEDRESTART" == '1' && -d /etc/needrestart ]]; then
   echo '==> Protect runner service from needrestart during package operations'
+  # shellcheck disable=SC2016
   printf '%s\n' '$nrconf{override_rc}{qr(^actions\.runner\..+\.service$)} = 0;' \
     | "${SUDO[@]}" tee /etc/needrestart/conf.d/actions_runner_services.conf >/dev/null
   echo 'ANDROID_BUILD_RUNNER_NEEDRESTART=CONFIGURED'
