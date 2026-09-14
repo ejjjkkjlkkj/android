@@ -171,6 +171,16 @@ echo "ANDROID_BUILD_JOBS = $BUILD_JOBS"
 echo "HOST_MEM_TOTAL_GIB = $MEM_TOTAL_GIB"
 lunch "$LUNCH_TARGET"
 
+# AOSP's generic x86_64 boot rules consume the kernel from the product output
+# directory. The AccessibleAndroid board supplies a verified prebuilt GKI
+# kernel, so materialize that input before Ninja schedules bootimage.
+PRODUCT_DEVICE_DIR="$AOSP_DIR/out/target/product/accessible_x86_64"
+mkdir -p "$PRODUCT_DEVICE_DIR"
+install -m 0644 \
+  "$AOSP_DIR/device/accessibledroid/accessible_x86_64/prebuilt/kernel" \
+  "$PRODUCT_DEVICE_DIR/kernel"
+echo "PREBUILT_KERNEL_OUTPUT = $PRODUCT_DEVICE_DIR/kernel"
+
 # The generic AOSP x86_64 board normally enables x86 as a second architecture.
 # AccessibleAndroid intentionally removes that secondary ABI to keep the guest
 # and the Soong graph x86_64-only. Fail before expensive graph analysis if a
