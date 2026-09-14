@@ -2,8 +2,10 @@
 # Keep the Android 17 platform userspace based on AOSP. PC/Bliss repositories are
 # engineering references only and must never replace these platform product layers.
 
-# 64/32-bit x86_64 runtime and GSI-style system image.
-$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
+# AccessibleAndroid is deliberately x86_64-only. Inherit the canonical AOSP
+# 64-bit-only contract before any product chain that can reach core_minimal.mk;
+# this selects zygote64, disables 32-bit apps and keeps dexopt on dex2oat64.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_system.mk)
 
 # Full handheld/phone framework split across system_ext and product, following
