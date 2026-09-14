@@ -1,7 +1,8 @@
 use crate::config::{bundled_firmware, Architecture, GuestProfile, VmConfig};
 use crate::embedded;
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub const ANDROID_OS_DISK_ID: &str = "osdisk";
 pub const ANDROID_OS_DISK_PCI_ADDR: &str = "0x6";
@@ -133,12 +134,110 @@ fn escape_qemu_keyval_path(path: &str) -> String {
     path.replace(',', ",,")
 }
 
-fn riscv_vars_firmware(code_path: &str) -> Option<String> {
+fn riscv_vars_firmware(code_path: &str) -> Option<PathBuf> {
     let code = Path::new(code_path);
     let file_name = code.file_name()?.to_str()?;
     let prefix = file_name.strip_suffix("-code.fd")?;
     let vars = code.with_file_name(format!("{prefix}-vars.fd"));
-    vars.is_file().then(|| vars.to_string_lossy().into_owned())
+    vars.is_file().then_some(vars)
+}
+
+fn safe_vm_file_component(name: &str) -> String {
+    let mut value = String::with_capacity(name.len());
+    for character in name.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+            value.push(character);
+        } else {
+            value.push('_');
+        }
+    }
+    let value = value.trim_matches('.').trim_matches('_');
+    if value.is_empty() {
+        "vm".to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+fn user_nvram_directory() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(local_app_data)
+            .join("AccessibleUTM")
+            .join("nvram");
+    }
+
+    if let Some(xdg_data_home) = env::var_os("XDG_DATA_HOME") {
+        return PathBuf::from(xdg_data_home)
+            .join("AccessibleUTM")
+            .join("nvram");
+    }
+    if let Some(home) = env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("AccessibleUTM")
+            .join("nvram");
+    }
+    env::temp_dir().join("AccessibleUTM").join("nvram")
+}
+
+fn private_riscv_vars_path(config: &VmConfig, template: &Path) -> PathBuf {
+    let template_name = template
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("edk2-riscv-vars.fd");
+
+    let disk = config.disk_path.trim();
+    if !disk.is_empty() {
+        let disk_path = Path::new(disk);
+        let stem = disk_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .map(safe_vm_file_component)
+            .unwrap_or_else(|| safe_vm_file_component(&config.name));
+        let file_name = format!("{stem}-{template_name}");
+        if let Some(parent) = disk_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return parent.join(file_name);
+        }
+        return user_nvram_directory().join(file_name);
+    }
+
+    user_nvram_directory().join(format!(
+        "{}-{template_name}",
+        safe_vm_file_component(&config.name)
+    ))
+}
+
+fn private_riscv_vars_firmware(config: &VmConfig, code_path: &str) -> Result<Option<String>, String> {
+    let Some(template) = riscv_vars_firmware(code_path) else {
+        return Ok(None);
+    };
+    let destination = private_riscv_vars_path(config, &template);
+
+    if !destination.is_file() {
+        if let Some(parent) = destination.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "Cannot create per-VM RISC-V NVRAM directory '{}': {error}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::copy(&template, &destination).map_err(|error| {
+            format!(
+                "Cannot create per-VM RISC-V NVRAM '{}' from template '{}': {error}",
+                destination.display(),
+                template.display()
+            )
+        })?;
+    }
+
+    Ok(Some(destination.to_string_lossy().into_owned()))
 }
 
 pub fn quote_for_display(value: &str) -> String {
@@ -214,7 +313,7 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
                 ),
             ]);
 
-            if let Some(vars_path) = riscv_vars_firmware(firmware_path) {
+            if let Some(vars_path) = private_riscv_vars_firmware(config, firmware_path)? {
                 machine_arg.push_str(",pflash1=pflash1");
                 firmware_args.extend([
                     "-blockdev".to_owned(),
@@ -319,6 +418,7 @@ pub fn printable_command(config: &VmConfig) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn detects_common_utm_disk_formats() {
@@ -378,6 +478,50 @@ mod tests {
                 && pair[1]
                     == "node-name=pflash0,driver=file,read-only=on,filename=edk2-riscv-code.fd"
         }));
+    }
+
+    #[test]
+    fn riscv_vars_template_is_copied_per_vm() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = env::temp_dir().join(format!(
+            "accessible-utm-riscv-vars-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let code = root.join("edk2-riscv-code.fd");
+        let template = root.join("edk2-riscv-vars.fd");
+        let disk = root.join("guest.qcow2");
+        fs::write(&code, b"code").unwrap();
+        fs::write(&template, b"vars-template").unwrap();
+        fs::write(&disk, b"disk").unwrap();
+
+        let config = VmConfig {
+            architecture: Architecture::Riscv64,
+            firmware_path: code.to_string_lossy().into_owned(),
+            disk_path: disk.to_string_lossy().into_owned(),
+            profile: GuestProfile::Linux,
+            ..VmConfig::default()
+        };
+        let args = build_args(&config).unwrap();
+        let private_vars = root.join("guest-edk2-riscv-vars.fd");
+        assert!(private_vars.is_file());
+        assert_eq!(fs::read(&private_vars).unwrap(), b"vars-template");
+        let private_text = private_vars.to_string_lossy();
+        assert!(args.iter().any(|arg| {
+            arg.starts_with("node-name=pflash1,driver=file,filename=")
+                && arg.contains(private_text.as_ref())
+        }));
+        assert!(!args.iter().any(|arg| {
+            arg == &format!(
+                "node-name=pflash1,driver=file,filename={}",
+                template.to_string_lossy()
+            )
+        }));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
