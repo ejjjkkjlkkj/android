@@ -55,6 +55,9 @@ jobs:
           grep -Fq "actions/runners" "$script"
           grep -Fq "GITHUB_RUNNER_STATE=ONLINE" "$script"
           grep -Fq "GITHUB_RUNNER_LABELS=" "$script"
+          grep -Fq "GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS" "$script"
+          grep -Fq "GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING" "$script"
+          grep -Fq "GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE" "$script"
           if grep -Eiq '(config\.sh[[:space:]]+--url|remove[.]sh|--token)' "$script"; then
             echo 'ERROR: runner launcher must not register, remove or reconfigure the GitHub runner.' >&2
             exit 1
@@ -75,6 +78,8 @@ jobs:
           grep -Fq 'actions/runners' "$script"
           grep -Fq 'GITHUB_RUNNER_STATE=ONLINE' "$script"
           grep -Fq 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING' "$script"
+          grep -Fq 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE' "$script"
           if grep -Eiq '(config\.sh|remove[.]sh|--token|gh api.*registration-token)' "$script"; then
             echo 'ERROR: Linux recovery helper must not register, remove or reconfigure the GitHub runner.' >&2
             exit 1
