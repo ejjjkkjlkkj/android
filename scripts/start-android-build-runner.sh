@@ -88,7 +88,7 @@ PY
 
   echo "GITHUB_RUNNER_NAME=$agent_name"
   state_line=''
-  for _ in 1 2 3 4 5 6; do
+  for _ in $(seq 1 15); do
     state_line="$(gh api "repos/$REPOSITORY/actions/runners" --paginate \
       --jq ".runners[] | select(.name == \"$agent_name\") | [.status, (.busy|tostring), ([.labels[].name] | join(\",\"))] | @tsv" \
       2>/dev/null | head -n 1 || true)"
@@ -100,11 +100,12 @@ PY
       if [[ "$status" == 'online' ]]; then
         if [[ ",$labels," == *,android-build,* ]]; then
           echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=PASS'
-        else
-          echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=MISSING'
+          echo 'GITHUB_RUNNER_STATE=ONLINE'
+          return 0
         fi
-        echo 'GITHUB_RUNNER_STATE=ONLINE'
-        return 0
+        echo 'GITHUB_RUNNER_LABEL_ANDROID_BUILD=MISSING'
+        echo 'GITHUB_RUNNER_STATE=ONLINE_LABEL_MISSING'
+        return 4
       fi
     fi
     sleep 2
@@ -112,16 +113,24 @@ PY
 
   if [[ -n "$state_line" ]]; then
     echo 'GITHUB_RUNNER_STATE=VISIBLE_NOT_ONLINE'
-  else
-    echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+    return 5
   fi
+
+  # The local listener can still be valid when the GitHub CLI token lacks the
+  # Actions runner read permission. Keep that case diagnostic rather than fatal.
+  echo 'GITHUB_RUNNER_STATE=NOT_VISIBLE_OR_API_UNAVAILABLE'
+  return 0
 }
 
 finish_success() {
-  local mode_name="$1"
+  local mode_name="$1" rc
   listener_processes
   echo "ANDROID_BUILD_RUNNER=$mode_name"
-  report_github_runner_state
+  report_github_runner_state || {
+    rc=$?
+    echo 'ERROR: local Runner.Listener is alive but GitHub does not see a usable android-build runner.' >&2
+    exit "$rc"
+  }
   exit 0
 }
 
