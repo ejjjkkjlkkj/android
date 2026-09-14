@@ -21,9 +21,13 @@ Current recovery strategy:
 Runner recovery:
 
 - `scripts/start-android-build-runner.ps1` and `scripts/start-android-build-runner.sh` start the already configured runner without registering or removing it;
+- both launchers treat `Runner.Listener` as the healthy process and do not mistake an orphan `Runner.Worker` for a live runner;
+- the Linux launcher now attempts `svc.sh start` even when `svc.sh status` is non-zero, which correctly handles an installed but stopped service;
+- when `gh` is authenticated, the launchers can report whether GitHub sees the runner online and expose its labels, including `android-build`;
 - `scripts/install-android-build-runner-service.sh` can explicitly install that existing runner as the official Linux systemd service using `svc.sh`, then start it and verify a stable `Runner.Listener`;
 - the service installer never runs automatically from CI and never uses a registration/removal token;
-- on Debian it applies the GitHub-recommended `needrestart` exclusion for `actions.runner.*.service` when `needrestart` is present.
+- on Debian it applies the GitHub-recommended `needrestart` exclusion for `actions.runner.*.service` when `needrestart` is present;
+- the runner launcher/service contracts, PowerShell parse, Bash parse and repository ShellCheck all pass on head `0955051bd2c0db11f6e95b1901cb88edd5b0592f`.
 
 Evidence from the latest completed real build attempt:
 
@@ -35,6 +39,14 @@ Evidence from the latest completed real build attempt:
 - eSpeak NG TTS package/service/x86_64 native library: PASS;
 - failure occurred during a single `soong_build` graph-analysis process after severe memory stalls, ending with signal 9 / exit 137;
 - that attempt still had `TARGET_2ND_ARCH=x86`, so the branch now removes the unnecessary 32-bit native graph in addition to the memory protections.
+
+Hosted validation on `0955051bd2c0db11f6e95b1901cb88edd5b0592f`:
+
+- 9/9 PR workflows: PASS;
+- `Validate repository`: PASS, including Bash parse and ShellCheck;
+- `Validate x86_64-only product`: PASS;
+- `Validate Android runner launcher`: PASS, including stopped-service recovery and persistent service safety;
+- Android layout, accessibility boot, APK cache, kernel cache, kernel module and VM hardware contracts: PASS.
 
 Current gate:
 
