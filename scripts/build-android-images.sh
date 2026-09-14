@@ -15,6 +15,9 @@ LUNCH_TARGET="${PRODUCT}-${RELEASE_CONFIG}-${VARIANT}"
 BUILD_JOBS="${ANDROID_BUILD_JOBS:-$(nproc 2>/dev/null || printf '8')}"
 MEM_TOTAL_KIB="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || printf '0')"
 MEM_TOTAL_GIB=$((MEM_TOTAL_KIB / 1024 / 1024))
+SWAP_TARGET_GIB="${ANDROID_BUILD_SWAP_TARGET_GIB:-32}"
+SWAP_MAX_ADD_GIB="${ANDROID_BUILD_SWAP_MAX_ADD_GIB:-16}"
+SWAP_FILE="${ANDROID_BUILD_SWAP_FILE:-$ROOT_DIR/.work/accessibleandroid-build.swap}"
 
 # Android 17 Soong analysis is memory-heavy and happens before Ninja can make
 # meaningful use of high parallelism. On the 32 GiB-class WSL runner, -j4 has
@@ -24,6 +27,83 @@ if (( MEM_TOTAL_GIB > 0 && MEM_TOTAL_GIB <= 36 && BUILD_JOBS > 2 )); then
   BUILD_JOBS=2
   echo "ANDROID_BUILD_JOBS_MEMORY_CAP = $BUILD_JOBS"
 fi
+
+ensure_build_swap() {
+  local swap_total_kib swap_total_gib add_gib free_kib required_kib
+  local -a sudo_cmd=()
+
+  # The extra swap is only a safety net for constrained WSL/self-hosted builds.
+  # Large native builders should keep their host-managed memory policy untouched.
+  if (( MEM_TOTAL_GIB == 0 || MEM_TOTAL_GIB > 36 )); then
+    echo "ANDROID_BUILD_SWAP = NOT_NEEDED"
+    return 0
+  fi
+
+  command -v swapon >/dev/null 2>&1 || {
+    echo "ANDROID_BUILD_SWAP = SKIP_NO_SWAPON"
+    return 0
+  }
+  command -v mkswap >/dev/null 2>&1 || {
+    echo "ANDROID_BUILD_SWAP = SKIP_NO_MKSWAP"
+    return 0
+  }
+  command -v fallocate >/dev/null 2>&1 || {
+    echo "ANDROID_BUILD_SWAP = SKIP_NO_FALLOCATE"
+    return 0
+  }
+
+  if (( EUID != 0 )); then
+    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+      sudo_cmd=(sudo -n)
+    else
+      echo "ANDROID_BUILD_SWAP = SKIP_NO_PRIVILEGE"
+      return 0
+    fi
+  fi
+
+  if swapon --show=NAME --noheadings 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -Fxq "$SWAP_FILE"; then
+    echo "ANDROID_BUILD_SWAP = ACTIVE"
+    return 0
+  fi
+
+  swap_total_kib="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || printf '0')"
+  swap_total_gib=$((swap_total_kib / 1024 / 1024))
+  if (( swap_total_gib >= SWAP_TARGET_GIB )); then
+    echo "ANDROID_BUILD_SWAP = HOST_SUFFICIENT"
+    echo "ANDROID_BUILD_SWAP_TOTAL_GIB = $swap_total_gib"
+    return 0
+  fi
+
+  add_gib=$((SWAP_TARGET_GIB - swap_total_gib))
+  (( add_gib > SWAP_MAX_ADD_GIB )) && add_gib=$SWAP_MAX_ADD_GIB
+  (( add_gib < 1 )) && add_gib=1
+
+  mkdir -p "$(dirname "$SWAP_FILE")"
+  free_kib="$(df -Pk "$(dirname "$SWAP_FILE")" | awk 'NR==2 {print $4}')"
+  required_kib=$(((add_gib + 8) * 1024 * 1024))
+  if (( free_kib < required_kib )); then
+    echo "ANDROID_BUILD_SWAP = SKIP_LOW_DISK"
+    echo "ANDROID_BUILD_SWAP_REQUEST_GIB = $add_gib"
+    echo "ANDROID_BUILD_SWAP_FREE_KIB = $free_kib"
+    return 0
+  fi
+
+  # Recreate only our dedicated project swap file. Never touch host swap devices.
+  if [[ -e "$SWAP_FILE" ]]; then
+    rm -f "$SWAP_FILE"
+  fi
+  fallocate -l "${add_gib}G" "$SWAP_FILE"
+  chmod 600 "$SWAP_FILE"
+  "${sudo_cmd[@]}" mkswap "$SWAP_FILE" >/dev/null
+  if "${sudo_cmd[@]}" swapon "$SWAP_FILE"; then
+    echo "ANDROID_BUILD_SWAP = ENABLED"
+    echo "ANDROID_BUILD_SWAP_ADDED_GIB = $add_gib"
+  else
+    echo "ANDROID_BUILD_SWAP = ENABLE_FAILED"
+    rm -f "$SWAP_FILE"
+    return 0
+  fi
+}
 
 release_pre_soong_memory() {
   local gradle_root="$ROOT_DIR/.work/tools"
@@ -41,6 +121,8 @@ release_pre_soong_memory() {
       ./gradlew --stop >/dev/null 2>&1 || true
     )
   fi
+
+  ensure_build_swap
 
   echo "MEMORY_BEFORE_SOONG ="
   free -h || true
