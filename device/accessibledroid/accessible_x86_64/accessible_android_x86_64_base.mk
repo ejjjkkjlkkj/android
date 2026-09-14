@@ -38,6 +38,15 @@ $(call inherit-product, device/accessibledroid/accessible_x86_64/vm_hardware.mk)
 # Accessibility is part of the base system and is independent of GMS.
 $(call inherit-product, vendor/accessibledroid/product/accessibility.mk)
 
+# generic_system.mk owns the system artifact namespace. These three privileged
+# accessibility packages are intentional AccessibleAndroid additions. Keep the
+# artifact-path contract enabled and allow only their dedicated directories,
+# including dexpreopt oat/vdex/art outputs generated below them.
+PRODUCT_ARTIFACT_PATH_REQUIREMENT_ALLOWED_LIST += \
+    system/priv-app/AccessibilityBootstrap/% \
+    system/priv-app/AccessibleTalkBack/% \
+    system/priv-app/AccessibleEspeakTts/%
+
 PRODUCT_DEVICE := accessible_x86_64
 PRODUCT_BRAND := AccessibleAndroid
 PRODUCT_MANUFACTURER := Accessible Android Project
