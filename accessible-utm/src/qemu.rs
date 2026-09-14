@@ -1,4 +1,4 @@
-use crate::config::{Architecture, GuestProfile, VmConfig};
+use crate::config::{Architecture, GuestProfile, VmConfig, bundled_firmware};
 use crate::embedded;
 use std::env;
 use std::path::Path;
@@ -197,9 +197,14 @@ pub fn build_args(config: &VmConfig) -> Result<Vec<String>, String> {
         "none".to_owned(),
     ];
 
-    if !config.firmware_path.trim().is_empty() {
+    let firmware = if config.firmware_path.trim().is_empty() {
+        bundled_firmware(config.architecture)
+    } else {
+        Some(config.firmware_path.trim().to_owned())
+    };
+    if let Some(firmware_path) = firmware {
         args.push("-bios".to_owned());
-        args.push(config.firmware_path.trim().to_owned());
+        args.push(firmware_path);
     }
 
     if !config.disk_path.trim().is_empty() {
@@ -301,6 +306,17 @@ mod tests {
             drive[1],
             "if=none,id=osdisk,file=C:/VMs/Android,, personal/disk.qcow2,format=qcow2,cache=writeback"
         );
+    }
+
+    #[test]
+    fn explicit_firmware_override_is_preserved() {
+        let config = VmConfig {
+            firmware_path: "custom-uefi.fd".to_owned(),
+            ..VmConfig::default()
+        };
+        let args = build_args(&config).unwrap();
+        let firmware = args.windows(2).find(|pair| pair[0] == "-bios").unwrap();
+        assert_eq!(firmware[1], "custom-uefi.fd");
     }
 
     #[test]
