@@ -1,0 +1,52 @@
+name: Validate accessible ISO foundation
+
+on:
+  push:
+    branches:
+      - accessible-android-from-zero
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Parse shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' f; do
+            bash -n "$f"
+          done < <(find scripts -type f -name '*.sh' -print0)
+
+      - name: ShellCheck
+        run: shellcheck -S warning scripts/*.sh
+
+      - name: Validate accessibility foundation
+        run: ./scripts/validate-foundation.sh
+
+      - name: Reject VM artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -type f \( -name '*.qcow2' -o -name '*.vdi' -o -name '*.vmdk' \) -print -quit | grep -q .; then
+            echo 'VM disk image found in ISO-only branch' >&2
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          echo 'Android 17 API 37 = pinned'
+          echo 'GRUB accessible path = configured'
+          echo 'Speakup/eSpeak installer contract = configured'
+          echo 'TalkBack/eSpeak Android contract = configured'
+          echo 'VM creation = prohibited'
