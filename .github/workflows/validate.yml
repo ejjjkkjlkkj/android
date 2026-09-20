@@ -196,6 +196,12 @@ jobs:
           grep -Fq 'virtio-keyboard-pci' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'virtio-tablet-pci' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'virtio-sound-pci' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'wav,id=accessible_audio' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'ACCESSIBILITY_AUDIO_CAPTURE = PASS' scripts/test-preinstalled-disk-qemu.sh
+          if grep -Fq 'driver=none,id=accessible_audio' scripts/test-preinstalled-disk-qemu.sh; then
+            echo 'ERROR: full accessibility gate must not discard guest audio.' >&2
+            exit 1
+          fi
           grep -Fq 'FULL_HARDWARE_BOOT = PASS' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'virtio-gpu.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio_input.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
