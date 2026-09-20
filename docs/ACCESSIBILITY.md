@@ -98,3 +98,21 @@ Required recovery commands are implemented in `scripts/accessibility-recovery.sh
 ## H. Automated acceptance
 
 A release must fail when any critical accessibility prerequisite is absent. The initial automated gate checks boot state, audio service, TTS registration, accessibility service registration/enabled state, package presence and persistence after reboot. UI-level event tests are added as the custom product matures.
+
+## I. Runtime verification and recovery
+
+After Android reaches `sys.boot_completed=1`, validate the actual guest state through ADB:
+
+```bash
+bash scripts/verify-accessibility-runtime-adb.sh
+```
+
+For a non-default ADB target, set `ADB_SERIAL` first. The validator fails unless TalkBack and eSpeak are installed, TalkBack is registered and enabled, Android accessibility is enabled, eSpeak is the configured default TTS engine, AccessibilityManager reports TalkBack, and AudioService is available.
+
+To recover speech settings without reinstalling the VM:
+
+```bash
+bash scripts/accessibility-recovery.sh
+```
+
+The recovery script preserves any other enabled accessibility services, adds TalkBack only when missing, selects offline eSpeak, and then runs the same runtime validator before reporting PASS.
