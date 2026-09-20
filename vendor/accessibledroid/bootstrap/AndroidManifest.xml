@@ -31,6 +31,7 @@
         <receiver
             android:name=".SpeechSmokeReceiver"
             android:enabled="true"
-            android:exported="true" />
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>
