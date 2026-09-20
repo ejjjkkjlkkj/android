@@ -9,7 +9,16 @@ source "$ROOT_DIR/config/workspace.env"
 source "$ROOT_DIR/config/vm.env"
 
 PRODUCT="${PRODUCT_NAME:-accessible_android_x86_64}"
-DISK="${PREINSTALLED_DISK:-$VM_ARTIFACT_DIR/preinstalled/AccessibleAndroid-17-${PRODUCT}-x86_64.qcow2}"
+NORMAL_DISK="$VM_ARTIFACT_DIR/preinstalled/AccessibleAndroid-17-${PRODUCT}-x86_64.qcow2"
+SELFTEST_DISK="$VM_ARTIFACT_DIR/preinstalled/AccessibleAndroid-17-${PRODUCT}-x86_64-selftest.qcow2"
+RUNTIME_SELFTEST="${RUNTIME_SELFTEST:-0}"
+if [[ -n "${PREINSTALLED_DISK:-}" ]]; then
+  DISK="$PREINSTALLED_DISK"
+elif [[ "$RUNTIME_SELFTEST" == "1" ]]; then
+  DISK="${PREINSTALLED_SELFTEST_DISK:-$SELFTEST_DISK}"
+else
+  DISK="$NORMAL_DISK"
+fi
 QEMU="${QEMU:-$(command -v qemu-system-x86_64 || true)}"
 QEMU_ACCEL="${QEMU_ACCEL:-tcg}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-300}"
@@ -33,7 +42,11 @@ fi
 }
 [[ -s "$DISK" ]] || {
   echo "ERROR: preinstalled QCOW2 disk not found at $DISK" >&2
-  echo "Run scripts/build-preinstalled-disk.sh first." >&2
+  if [[ "$RUNTIME_SELFTEST" == "1" ]]; then
+    echo "Run BUILD_SELFTEST_DISK=1 scripts/build-preinstalled-disk.sh first." >&2
+  else
+    echo "Run scripts/build-preinstalled-disk.sh first." >&2
+  fi
   exit 3
 }
 command -v timeout >/dev/null 2>&1 || {
@@ -108,6 +121,8 @@ run_boot_test() {
   echo "QEMU_ACCEL = $QEMU_ACCEL"
   echo "QEMU_CPU = $CPU_MODEL"
   echo "HARDWARE_PROFILE = $HARDWARE_PROFILE"
+  echo "RUNTIME_SELFTEST = $RUNTIME_SELFTEST"
+  echo "DISK = $DISK"
   rm -f "$log"
 
   set +e
@@ -144,6 +159,32 @@ run_boot_test() {
     echo "ERROR: $mode boot reached Android userspace but not sys.boot_completed=1 (QEMU status $qemu_status)" >&2
     tail -n 200 "$log" >&2 || true
     return 7
+  fi
+
+  if [[ "$RUNTIME_SELFTEST" == "1" ]]; then
+    if grep -Fq 'ACCESSIBILITY_SELFTEST = FAIL' "$log"; then
+      echo "ERROR: $mode accessibility self-test reported failure" >&2
+      grep -F 'ACCESSIBILITY_SELFTEST = FAIL' "$log" >&2 || true
+      tail -n 250 "$log" >&2 || true
+      return 8
+    fi
+    for marker in \
+      'TALKBACK_BOUND = PASS' \
+      'OFFLINE_TTS_DEFAULT = PASS' \
+      'AUDIO_SERVICE = PASS' \
+      'AUDIO_FLINGER = PASS' \
+      'KEYBOARD_FOCUS_NAVIGATION = PASS' \
+      'TTS_SYNTHESIS_EN_US = PASS' \
+      'TTS_SYNTHESIS_FR_FR = PASS' \
+      'ACCESSIBILITY_RUNTIME = PASS' \
+      'ACCESSIBILITY_SELFTEST = PASS'; do
+      if ! grep -Fq "$marker" "$log"; then
+        echo "ERROR: $mode runtime accessibility marker missing: $marker" >&2
+        tail -n 250 "$log" >&2 || true
+        return 8
+      fi
+    done
+    echo "ACCESSIBILITY_RUNTIME_SELFTEST = PASS"
   fi
 
   echo "PREINSTALLED_ANDROID_${mode^^} = PASS"
