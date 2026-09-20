@@ -197,5 +197,8 @@ jobs:
           grep -Fq 'virtio-tablet-pci' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'virtio-sound-pci' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'FULL_HARDWARE_BOOT = PASS' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-gpu.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'virtio_input.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'virtio_snd.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           PLAN_ONLY=1 bash scripts/build-preinstalled-disk.sh
           echo 'PREINSTALLED_DISK_CONTRACT = PASS'
