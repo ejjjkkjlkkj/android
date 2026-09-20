@@ -50,6 +50,18 @@ case "$cmd" in
   'settings get secure tts_default_synth')
     echo 'com.reecedunn.espeak'
     ;;
+  'service check texttospeech')
+    if [[ "${MOCK_CASE:-pass}" == 'no-tts-manager' ]]; then
+      echo 'Service texttospeech: not found'
+    else
+      echo 'Service texttospeech: found'
+    fi
+    ;;
+  'dumpsys package com.reecedunn.espeak')
+    if [[ "${MOCK_CASE:-pass}" != 'no-espeak-service' ]]; then
+      echo 'Action: "android.intent.action.TTS_SERVICE"'
+    fi
+    ;;
   'dumpsys package com.google.android.accessibility.talkback')
     echo 'Service: com.google.android.marvin.talkback.TalkBackService'
     ;;
@@ -92,6 +104,16 @@ case "$cmd" in
   'dumpsys input')
     echo 'Input Manager State'
     ;;
+  'dumpsys SurfaceFlinger')
+    if [[ "${MOCK_CASE:-pass}" != 'no-surfaceflinger' ]]; then
+      echo 'SurfaceFlinger state'
+    fi
+    ;;
+  'dumpsys display')
+    if [[ "${MOCK_CASE:-pass}" != 'no-display' ]]; then
+      echo 'Display Manager State'
+    fi
+    ;;
   *)
     echo "unexpected adb shell command: $cmd" >&2
     exit 91
@@ -126,6 +148,10 @@ run_case() {
     grep -Fq 'AUDIO_FLINGER = PASS' <<<"$output"
     grep -Fq 'AUDIO_POLICY = PASS' <<<"$output"
     grep -Fq 'INPUT_MANAGER = PASS' <<<"$output"
+    grep -Fq 'TTS_MANAGER = PASS' <<<"$output"
+    grep -Fq 'ESPEAK_SERVICE_REGISTERED = PASS' <<<"$output"
+    grep -Fq 'SURFACE_FLINGER = PASS' <<<"$output"
+    grep -Fq 'DISPLAY_MANAGER = PASS' <<<"$output"
     grep -Fq 'ACCESSIBILITY_RUNTIME = PASS' <<<"$output"
   else
     if (( status == 0 )); then
@@ -145,5 +171,9 @@ run_case binding fail
 run_case crashed fail
 run_case no-audio-flinger fail
 run_case no-audio-policy fail
+run_case no-tts-manager fail
+run_case no-espeak-service fail
+run_case no-surfaceflinger fail
+run_case no-display fail
 
 echo 'ACCESSIBILITY_RUNTIME_VALIDATOR_TESTS = PASS'
