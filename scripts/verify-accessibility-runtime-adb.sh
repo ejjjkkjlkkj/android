@@ -114,6 +114,60 @@ while true; do
   sleep 1
 done
 
+# Prove that Android's keyboard focus model is usable, not merely that a
+# keyboard device is declared by QEMU. Start from Home, inject real Android
+# KEYCODE_TAB events through InputManager, and require UIAutomator to expose a
+# focused accessibility node that changes within four Tab presses.
+keyboard_tmp="$(mktemp -d)"
+trap 'rm -rf "$keyboard_tmp"' EXIT
+run_shell input keyevent KEYCODE_HOME >/dev/null 2>&1 || fail "failed to send KEYCODE_HOME"
+sleep 1
+
+capture_ui() {
+  local destination="$1"
+  run_shell uiautomator dump /data/local/tmp/accessible-window.xml >/dev/null 2>&1 || \
+    fail "uiautomator dump failed while validating keyboard navigation"
+  run_shell cat /data/local/tmp/accessible-window.xml 2>/dev/null | clean_cr > "$destination"
+  [[ -s "$destination" ]] || fail "uiautomator returned an empty window hierarchy"
+}
+
+focused_signature() {
+  python3 - "$1" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter():
+    if node.attrib.get("focused") == "true":
+        fields = (
+            node.attrib.get("resource-id", ""),
+            node.attrib.get("class", ""),
+            node.attrib.get("text", ""),
+            node.attrib.get("content-desc", ""),
+            node.attrib.get("bounds", ""),
+        )
+        print("|".join(fields))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+capture_ui "$keyboard_tmp/before.xml"
+before_focus="$(focused_signature "$keyboard_tmp/before.xml" 2>/dev/null || true)"
+keyboard_focus=""
+for attempt in 1 2 3 4; do
+  run_shell input keyevent KEYCODE_TAB >/dev/null 2>&1 || fail "failed to send KEYCODE_TAB"
+  sleep 1
+  capture_ui "$keyboard_tmp/after-$attempt.xml"
+  after_focus="$(focused_signature "$keyboard_tmp/after-$attempt.xml" 2>/dev/null || true)"
+  if [[ -n "$after_focus" && "$after_focus" != "$before_focus" ]]; then
+    keyboard_focus="$after_focus"
+    break
+  fi
+done
+[[ -n "$keyboard_focus" ]] || \
+  fail "keyboard Tab navigation did not produce a changed focused accessibility node"
+
 audio_dump="$(run_shell dumpsys audio 2>/dev/null | clean_cr || true)"
 [[ -n "$audio_dump" ]] || fail "AudioService dump is empty"
 
@@ -158,6 +212,7 @@ echo "TALKBACK_PACKAGE = PASS"
 echo "TALKBACK_SERVICE_REGISTERED = PASS"
 echo "TALKBACK_ENABLED = PASS"
 echo "TALKBACK_BOUND = PASS"
+echo "KEYBOARD_FOCUS_NAVIGATION = PASS"
 echo "ESPEAK_PACKAGE = PASS"
 echo "OFFLINE_TTS_DEFAULT = PASS"
 echo "AUDIO_SERVICE = PASS"
