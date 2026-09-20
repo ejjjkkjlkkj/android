@@ -27,6 +27,18 @@ jobs:
       - name: ShellCheck
         run: shellcheck scripts/*.sh
 
+      - name: Validate accessibility runtime fail-closed gates
+        run: |
+          set -euo pipefail
+          bash scripts/test-accessibility-runtime-validator.sh
+          grep -Fq '[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]]' scripts/build-accessibility-apps.sh
+          grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' scripts/build-accessibility-apps.sh
+          grep -Fq 'vmwgfx.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'TALKBACK_CONNECTED = PASS' scripts/verify-accessibility-runtime-adb.sh
+          grep -Fq 'AUDIO_FLINGER = PASS' scripts/verify-accessibility-runtime-adb.sh
+          grep -Fq 'AUDIO_POLICY = PASS' scripts/verify-accessibility-runtime-adb.sh
+          echo 'ACCESSIBILITY_FAIL_CLOSED_CONTRACT = PASS'
+
       - name: Reject packaged Android binaries in repository
         run: bash scripts/check-no-proprietary.sh
 
