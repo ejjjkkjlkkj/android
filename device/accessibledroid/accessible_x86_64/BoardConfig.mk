@@ -58,6 +58,7 @@ BOARD_VENDOR_RAMDISK_KERNEL_MODULES_LOAD := $(ACCESSIBLE_FIRST_STAGE_MODULES)
 BOARD_VENDOR_KERNEL_MODULES := $(KERNEL_MODULES)
 ACCESSIBLE_RUNTIME_MODULE_NAMES := \
     virtio-gpu.ko \
+    vmwgfx.ko \
     virtio-rng.ko \
     virtio_dma_buf.ko \
     virtio_input.ko \
