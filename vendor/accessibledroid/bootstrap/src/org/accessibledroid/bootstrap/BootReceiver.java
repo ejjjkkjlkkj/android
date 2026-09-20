@@ -40,12 +40,21 @@ public final class BootReceiver extends BroadcastReceiver {
 
     private static void ensureAccessibleBoot(Context context) {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            if (isInstalled(context, TALKBACK_PACKAGE) && isInstalled(context, ESPEAK_PACKAGE)) {
-                configure(context);
+            final boolean packagesReady =
+                    isInstalled(context, TALKBACK_PACKAGE) && isInstalled(context, ESPEAK_PACKAGE);
+
+            if (packagesReady && configureAndVerify(context)) {
                 return;
             }
 
-            Log.w(TAG, "Accessibility packages not ready, attempt " + attempt + "/" + MAX_ATTEMPTS);
+            if (!packagesReady) {
+                Log.w(TAG, "Accessibility packages not ready, attempt "
+                        + attempt + "/" + MAX_ATTEMPTS);
+            } else {
+                Log.w(TAG, "Accessibility settings not ready, attempt "
+                        + attempt + "/" + MAX_ATTEMPTS);
+            }
+
             try {
                 Thread.sleep(RETRY_DELAY_MS);
             } catch (InterruptedException e) {
@@ -54,7 +63,7 @@ public final class BootReceiver extends BroadcastReceiver {
             }
         }
 
-        Log.e(TAG, "Required accessibility packages were not available after boot");
+        Log.e(TAG, "Required accessibility runtime could not be configured after boot");
     }
 
     private static boolean isInstalled(Context context, String packageName) {
@@ -66,9 +75,22 @@ public final class BootReceiver extends BroadcastReceiver {
         }
     }
 
-    private static void configure(Context context) {
+    private static boolean containsService(String services, String target) {
+        if (services == null || services.isBlank()) {
+            return false;
+        }
+        for (String service : services.split(":")) {
+            if (target.equals(service)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean configureAndVerify(Context context) {
         final ContentResolver resolver = context.getContentResolver();
-        final String talkBackComponent = new ComponentName(TALKBACK_PACKAGE, TALKBACK_CLASS).flattenToString();
+        final String talkBackComponent =
+                new ComponentName(TALKBACK_PACKAGE, TALKBACK_CLASS).flattenToString();
         final Set<String> services = new LinkedHashSet<>();
 
         final String current = Settings.Secure.getString(
@@ -82,13 +104,41 @@ public final class BootReceiver extends BroadcastReceiver {
         }
         services.add(talkBackComponent);
 
-        Settings.Secure.putString(
+        final boolean servicesWritten = Settings.Secure.putString(
                 resolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
                 String.join(":", services));
-        Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
-        Settings.Secure.putString(resolver, TTS_DEFAULT_SYNTH, ESPEAK_PACKAGE);
+        final boolean accessibilityWritten = Settings.Secure.putInt(
+                resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        final boolean ttsWritten = Settings.Secure.putString(
+                resolver, TTS_DEFAULT_SYNTH, ESPEAK_PACKAGE);
 
-        Log.i(TAG, "TalkBack and offline eSpeak TTS configured for accessible boot");
+        final String verifiedServices = Settings.Secure.getString(
+                resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        final int accessibilityEnabled = Settings.Secure.getInt(
+                resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        final String verifiedTts = Settings.Secure.getString(resolver, TTS_DEFAULT_SYNTH);
+
+        final boolean talkBackEnabled = containsService(verifiedServices, talkBackComponent);
+        final boolean ready = servicesWritten
+                && accessibilityWritten
+                && ttsWritten
+                && talkBackEnabled
+                && accessibilityEnabled == 1
+                && ESPEAK_PACKAGE.equals(verifiedTts);
+
+        if (ready) {
+            Log.i(TAG, "TalkBack and offline eSpeak TTS configured and verified");
+        } else {
+            Log.w(TAG, "Accessibility verification failed: "
+                    + "servicesWritten=" + servicesWritten
+                    + ", accessibilityWritten=" + accessibilityWritten
+                    + ", ttsWritten=" + ttsWritten
+                    + ", talkBackEnabled=" + talkBackEnabled
+                    + ", accessibilityEnabled=" + accessibilityEnabled
+                    + ", tts=" + verifiedTts);
+        }
+
+        return ready;
     }
 }
