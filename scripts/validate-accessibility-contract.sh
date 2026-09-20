@@ -38,6 +38,8 @@ grep -Fq "<package android:name=\"$ESPEAK_PACKAGE\" />" "$MANIFEST" || \
   fail "bootstrap manifest cannot query eSpeak package"
 grep -Fq 'android:name=".SpeechSmokeReceiver"' "$MANIFEST" || \
   fail "SpeechSmokeReceiver is not declared"
+grep -Fq 'android:permission="android.permission.DUMP"' "$MANIFEST" || \
+  fail "SpeechSmokeReceiver is not protected by android.permission.DUMP"
 
 grep -Fq "private static final String ACTION = \"$ACCESSIBILITY_TTS_SMOKE_ACTION\";" "$SMOKE_RECEIVER" || \
   fail "speech smoke action drift"
