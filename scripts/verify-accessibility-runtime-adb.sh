@@ -9,6 +9,7 @@ ADB="${ADB:-adb}"
 ADB_SERIAL="${ADB_SERIAL:-}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-180}"
 ACCESSIBILITY_BIND_TIMEOUT_SECONDS="${ACCESSIBILITY_BIND_TIMEOUT_SECONDS:-30}"
+TTS_SMOKE_TIMEOUT_SECONDS="${TTS_SMOKE_TIMEOUT_SECONDS:-45}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -61,6 +62,9 @@ talkback_path="$(run_shell pm path "$TALKBACK_PACKAGE" 2>/dev/null | clean_cr ||
 
 espeak_path="$(run_shell pm path "$ESPEAK_PACKAGE" 2>/dev/null | clean_cr || true)"
 [[ "$espeak_path" == package:* ]] || fail "eSpeak TTS package is not installed: $ESPEAK_PACKAGE"
+
+bootstrap_path="$(run_shell pm path "$ACCESSIBILITY_BOOTSTRAP_PACKAGE" 2>/dev/null | clean_cr || true)"
+[[ "$bootstrap_path" == package:* ]] || fail "Accessibility bootstrap package is not installed: $ACCESSIBILITY_BOOTSTRAP_PACKAGE"
 
 accessibility_enabled="$(run_shell settings get secure accessibility_enabled | clean_cr)"
 [[ "$accessibility_enabled" == "1" ]] || fail "accessibility_enabled=$accessibility_enabled (expected 1)"
@@ -116,6 +120,39 @@ audio_dump="$(run_shell dumpsys audio 2>/dev/null | clean_cr || true)"
 audio_flinger_dump="$(run_shell dumpsys media.audio_flinger 2>/dev/null | clean_cr || true)"
 [[ -n "$audio_flinger_dump" ]] || fail "AudioFlinger dump is empty"
 
+# Exercise the configured offline engine instead of accepting package/settings
+# presence as proof of speech. The privileged bootstrap receiver synthesizes
+# one English and one French utterance and reports completion through logcat.
+run_shell logcat -c >/dev/null 2>&1 || true
+broadcast_output="$(run_shell am broadcast \
+  -a "$ACCESSIBILITY_TTS_SMOKE_ACTION" \
+  -n "$ACCESSIBILITY_TTS_SMOKE_COMPONENT" 2>&1 | clean_cr || true)"
+grep -Fq "Broadcast completed" <<<"$broadcast_output" || {
+  printf '%s\n' "$broadcast_output" >&2
+  fail "TTS smoke broadcast did not complete"
+}
+
+tts_deadline=$((SECONDS + TTS_SMOKE_TIMEOUT_SECONDS))
+tts_log=""
+while true; do
+  tts_log="$(run_shell logcat -d -s AccessibleTtsSmoke:V 2>/dev/null | clean_cr || true)"
+  if grep -Fq "ACCESSIBLE_TTS_SMOKE=PASS" <<<"$tts_log"; then
+    break
+  fi
+  if grep -Fq "ACCESSIBLE_TTS_SMOKE=FAIL" <<<"$tts_log"; then
+    printf '%s\n' "$tts_log" >&2
+    fail "offline TTS smoke test reported failure"
+  fi
+  if (( SECONDS >= tts_deadline )); then
+    printf '%s\n' "$tts_log" >&2
+    fail "offline TTS smoke test did not finish within ${TTS_SMOKE_TIMEOUT_SECONDS}s"
+  fi
+  sleep 1
+done
+
+grep -Fq "TTS_SMOKE_EN_US=PASS" <<<"$tts_log" || fail "English TTS smoke did not complete"
+grep -Fq "TTS_SMOKE_FR_FR=PASS" <<<"$tts_log" || fail "French TTS smoke did not complete"
+
 echo "ANDROID_BOOT_COMPLETED = PASS"
 echo "TALKBACK_PACKAGE = PASS"
 echo "TALKBACK_SERVICE_REGISTERED = PASS"
@@ -125,4 +162,6 @@ echo "ESPEAK_PACKAGE = PASS"
 echo "OFFLINE_TTS_DEFAULT = PASS"
 echo "AUDIO_SERVICE = PASS"
 echo "AUDIO_FLINGER = PASS"
+echo "TTS_SYNTHESIS_EN_US = PASS"
+echo "TTS_SYNTHESIS_FR_FR = PASS"
 echo "ACCESSIBILITY_RUNTIME = PASS"
