@@ -15,9 +15,11 @@ RAW_DISK="$DISK_DIR/AccessibleAndroid-17-${PRODUCT}-x86_64.raw"
 QCOW2_DISK="$DISK_DIR/AccessibleAndroid-17-${PRODUCT}-x86_64.qcow2"
 VDI_DISK="$DISK_DIR/AccessibleAndroid-17-${PRODUCT}-x86_64.vdi"
 VMDK_DISK="$DISK_DIR/AccessibleAndroid-17-${PRODUCT}-x86_64.vmdk"
+SELFTEST_QCOW2_DISK="$DISK_DIR/AccessibleAndroid-17-${PRODUCT}-x86_64-selftest.qcow2"
 MANIFEST="$DISK_DIR/DISK-MANIFEST.txt"
 PLAN_ONLY="${PLAN_ONLY:-0}"
 EXPORT_ALL_FORMATS="${EXPORT_ALL_FORMATS:-1}"
+BUILD_SELFTEST_DISK="${BUILD_SELFTEST_DISK:-0}"
 
 DISK_SIZE_MIB=$((VM_DISK_SIZE_GIB * 1024))
 FIXED_PARTITION_MIB=$((
@@ -127,7 +129,7 @@ trap cleanup EXIT INT TERM
 
 rm -rf "$WORK_DIR"
 mkdir -p "$DISK_DIR" "$ESP_MOUNT" "$CONVERT_DIR"
-rm -f "$RAW_DISK" "$QCOW2_DISK" "$VDI_DISK" "$VMDK_DISK" "$MANIFEST" "$DISK_DIR/SHA256SUMS"
+rm -f "$RAW_DISK" "$QCOW2_DISK" "$VDI_DISK" "$VMDK_DISK" "$SELFTEST_QCOW2_DISK" "$MANIFEST" "$DISK_DIR/SHA256SUMS"
 qemu-img create -f raw "$RAW_DISK" "${VM_DISK_SIZE_GIB}G" >/dev/null
 
 # The builder owns this newly created regular file. Never accept a caller
@@ -271,6 +273,11 @@ menuentry 'AccessibleAndroid 17' --id accessible-android {
     linux /android/kernel $ANDROID_CMDLINE
     initrd /android/android-initrd.img
 }
+
+menuentry 'AccessibleAndroid 17 accessibility self-test' --id accessible-android-selftest {
+    linux /android/kernel $ANDROID_CMDLINE androidboot.accessibledroid.selftest=1
+    initrd /android/android-initrd.img
+}
 EOF
 "${SUDO[@]}" install -m 0644 "$GRUB_CFG" "$ESP_MOUNT/boot/grub/grub.cfg"
 
@@ -299,6 +306,65 @@ sgdisk -v "$RAW_DISK"
 sgdisk -p "$RAW_DISK" > "$DISK_DIR/GPT.txt"
 
 qemu-img convert -p -f raw -O qcow2 -o compat=1.1,lazy_refcounts=on "$RAW_DISK" "$QCOW2_DISK"
+
+if [[ "$BUILD_SELFTEST_DISK" == "1" ]]; then
+  echo "==> Building CI-only accessibility self-test QCOW2"
+  LOOP_DEV="$("${SUDO[@]}" losetup --find --show --partscan "$RAW_DISK")"
+  [[ -b "$LOOP_DEV" ]] || {
+    echo "ERROR: failed to reattach raw disk for self-test GRUB selection" >&2
+    exit 11
+  }
+  for _ in $(seq 1 50); do
+    if partition_path 2 >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  P2="$(partition_path 2)" || {
+    echo "ERROR: ESP partition did not appear for self-test disk" >&2
+    exit 12
+  }
+  "${SUDO[@]}" mount "$P2" "$ESP_MOUNT"
+  ESP_MOUNTED=1
+  "${SUDO[@]}" sed -i 's/^set default=0$/set default=1/' "$ESP_MOUNT/boot/grub/grub.cfg"
+  grep -Fq 'set default=1' "$ESP_MOUNT/boot/grub/grub.cfg" || {
+    echo "ERROR: failed to select accessibility self-test GRUB entry" >&2
+    exit 13
+  }
+  sync
+  "${SUDO[@]}" umount "$ESP_MOUNT"
+  ESP_MOUNTED=0
+  "${SUDO[@]}" losetup -d "$LOOP_DEV"
+  LOOP_DEV=""
+
+  qemu-img convert -p -f raw -O qcow2 -o compat=1.1,lazy_refcounts=on "$RAW_DISK" "$SELFTEST_QCOW2_DISK"
+
+  LOOP_DEV="$("${SUDO[@]}" losetup --find --show --partscan "$RAW_DISK")"
+  for _ in $(seq 1 50); do
+    if partition_path 2 >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+  P2="$(partition_path 2)" || {
+    echo "ERROR: ESP partition did not reappear while restoring normal GRUB default" >&2
+    exit 14
+  }
+  "${SUDO[@]}" mount "$P2" "$ESP_MOUNT"
+  ESP_MOUNTED=1
+  "${SUDO[@]}" sed -i 's/^set default=1$/set default=0/' "$ESP_MOUNT/boot/grub/grub.cfg"
+  grep -Fq 'set default=0' "$ESP_MOUNT/boot/grub/grub.cfg" || {
+    echo "ERROR: failed to restore normal GRUB default" >&2
+    exit 15
+  }
+  sync
+  "${SUDO[@]}" umount "$ESP_MOUNT"
+  ESP_MOUNTED=0
+  "${SUDO[@]}" losetup -d "$LOOP_DEV"
+  LOOP_DEV=""
+  echo "ACCESSIBILITY_SELFTEST_DISK = PASS"
+fi
+
 if [[ "$EXPORT_ALL_FORMATS" == "1" ]]; then
   qemu-img convert -p -f raw -O vdi "$RAW_DISK" "$VDI_DISK"
   qemu-img convert -p -f raw -O vmdk -o subformat=streamOptimized "$RAW_DISK" "$VMDK_DISK"
@@ -339,6 +405,9 @@ fi
 echo "PREINSTALLED_ANDROID_DISK = PASS"
 echo "RAW = $RAW_DISK"
 echo "QCOW2 = $QCOW2_DISK"
+if [[ "$BUILD_SELFTEST_DISK" == "1" ]]; then
+  echo "SELFTEST_QCOW2 = $SELFTEST_QCOW2_DISK"
+fi
 if [[ "$EXPORT_ALL_FORMATS" == "1" ]]; then
   echo "VDI = $VDI_DISK"
   echo "VMDK = $VMDK_DISK"
