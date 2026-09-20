@@ -1,2 +1,3 @@
-triggered_utc=2026-09-17T15:49:00Z
-purpose=recover-existing-android-iso-from-self-hosted-wsl-runner
+triggered_utc=2026-09-20T13:59:00Z
+purpose=recover-existing-android-iso-from-self-hosted-wsl-runner-after-vmware-accessibility-fix
+source_main=36e67cbdda7c6ee15b8a80b330dd20b254f2b0ea
