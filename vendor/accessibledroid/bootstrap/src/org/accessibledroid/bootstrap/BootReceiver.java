@@ -16,7 +16,7 @@ import java.util.Set;
 public final class BootReceiver extends BroadcastReceiver {
     private static final String TAG = "AccessibleBootstrap";
 
-    private static final String TALKBACK_PACKAGE = "com.google.android.accessibility.talkback";
+    private static final String TALKBACK_PACKAGE = "com.android.talkback";
     private static final String TALKBACK_CLASS = "com.google.android.marvin.talkback.TalkBackService";
     private static final String ESPEAK_PACKAGE = "com.reecedunn.espeak";
 
