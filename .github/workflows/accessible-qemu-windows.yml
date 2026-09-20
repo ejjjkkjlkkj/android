@@ -30,6 +30,10 @@ concurrency:
 permissions:
   contents: read
 
+concurrency:
+  group: accessible-qemu-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
     name: Build AccessibleQEMU on Windows x64
