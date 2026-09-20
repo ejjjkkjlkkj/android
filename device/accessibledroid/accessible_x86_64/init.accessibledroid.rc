@@ -7,3 +7,20 @@ on post-fs-data
 
 on property:sys.boot_completed=1
     write /dev/ttyS0 ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS
+
+
+# CI-only accessibility runtime self-test. The final user boot entry does not
+# set ro.boot.accessibledroid.selftest, so this service remains disabled during
+# normal use. The QEMU validation disk selects a second GRUB entry that adds
+# androidboot.accessibledroid.selftest=1.
+service accessibleandroid_runtime_selftest /system/bin/sh /vendor/etc/accessibility-runtime-selftest.sh
+    class late_start
+    user shell
+    group shell log input
+    seclabel u:r:shell:s0
+    console ttyS0
+    disabled
+    oneshot
+
+on property:sys.boot_completed=1 && property:ro.boot.accessibledroid.selftest=1
+    start accessibleandroid_runtime_selftest
