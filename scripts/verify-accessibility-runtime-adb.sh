@@ -38,7 +38,17 @@ clean_cr() {
 extract_accessibility_section() {
   local start="$1"
   local stop="$2"
-  sed -n "/$start/,/$stop/p"
+  awk -v start="$start" -v stop="$stop" '
+    index($0, start) {
+      inside = 1
+    }
+    inside && index($0, stop) {
+      exit
+    }
+    inside {
+      print
+    }
+  '
 }
 
 echo "Waiting for Android ADB device..."
@@ -120,6 +130,18 @@ audio_dump="$(run_shell dumpsys audio 2>/dev/null | clean_cr || true)"
 audio_flinger_dump="$(run_shell dumpsys media.audio_flinger 2>/dev/null | clean_cr || true)"
 [[ -n "$audio_flinger_dump" ]] || fail "AudioFlinger dump is empty"
 
+audio_policy_dump="$(run_shell dumpsys media.audio_policy 2>/dev/null | clean_cr || true)"
+[[ -n "$audio_policy_dump" ]] || fail "AudioPolicy dump is empty"
+
+input_dump="$(run_shell dumpsys input 2>/dev/null | clean_cr || true)"
+[[ -n "$input_dump" ]] || fail "InputManager dump is empty"
+
+surface_flinger_dump="$(run_shell dumpsys SurfaceFlinger 2>/dev/null | clean_cr || true)"
+[[ -n "$surface_flinger_dump" ]] || fail "SurfaceFlinger dump is empty"
+
+display_dump="$(run_shell dumpsys display 2>/dev/null | clean_cr || true)"
+[[ -n "$display_dump" ]] || fail "DisplayManager dump is empty"
+
 # Exercise the configured offline engine instead of accepting package/settings
 # presence as proof of speech. The privileged bootstrap receiver synthesizes
 # one English and one French utterance and reports completion through logcat.
@@ -162,6 +184,10 @@ echo "ESPEAK_PACKAGE = PASS"
 echo "OFFLINE_TTS_DEFAULT = PASS"
 echo "AUDIO_SERVICE = PASS"
 echo "AUDIO_FLINGER = PASS"
+echo "AUDIO_POLICY = PASS"
+echo "INPUT_MANAGER = PASS"
+echo "SURFACE_FLINGER = PASS"
+echo "DISPLAY_MANAGER = PASS"
 echo "TTS_SYNTHESIS_EN_US = PASS"
 echo "TTS_SYNTHESIS_FR_FR = PASS"
 echo "ACCESSIBILITY_RUNTIME = PASS"
