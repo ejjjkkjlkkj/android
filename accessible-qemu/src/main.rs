@@ -11,6 +11,11 @@ const OS_DISK_ID: &str = "osdisk";
 const OS_DISK_PCI_ADDR: &str = "0x6";
 const RNG_PCI_ADDR: &str = "0x7";
 const NET_PCI_ADDR: &str = "0x8";
+const GPU_PCI_ADDR: &str = "0x9";
+const AUDIO_PCI_ADDR: &str = "0xa";
+const KEYBOARD_PCI_ADDR: &str = "0xb";
+const TABLET_PCI_ADDR: &str = "0xc";
+const AUDIODEV_ID: &str = "accessibleaudio";
 
 const HELP: &str = "AccessibleQEMU\n\nOptions:\n  --iso <path>             AccessibleAndroid ISO\n  --disk <path>            RAW/QCOW2/VDI/VMDK virtual disk\n  --firmware <path>        Optional OVMF/UEFI firmware image\n  --qemu <path>            qemu-system-x86_64 executable\n  --memory <MiB>           Guest memory, 1024..32768\n  --cpus <count>           Guest virtual CPUs, 1..16\n  --qmp-port <port>        Local QMP control port, default 4444\n  --autostart              Start VM immediately after opening GUI\n  --print-qemu-command     Print deterministic QEMU command and exit\n  --help, -h               Show this help and exit\n  --version                Show version and exit\n\nHardware contract:\n  OS disk: virtio-blk-pci at PCI 0000:00:06.0\n  RNG:     virtio-rng-pci at PCI 0000:00:07.0\n  Network: virtio-net-pci at PCI 0000:00:08.0\n";
 
@@ -28,6 +33,7 @@ struct AccessibleQemuApp {
     memory_mib: u32,
     cpu_count: u32,
     qmp_port: u16,
+    audio_backend: String,
     status: String,
     child: Option<Child>,
     autostart_pending: bool,
@@ -43,11 +49,31 @@ impl Default for AccessibleQemuApp {
             memory_mib: 4096,
             cpu_count: 4,
             qmp_port: 4444,
+            audio_backend: default_audio_backend().to_owned(),
             status: "Stopped. Configure the virtual machine, then choose Start virtual machine."
                 .to_owned(),
             child: None,
             autostart_pending: false,
         }
+    }
+}
+
+fn default_audio_backend() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "dsound"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "coreaudio"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "sdl"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        "sdl"
     }
 }
 
@@ -148,6 +174,16 @@ fn app_from_args() -> Startup {
                         return Startup::Exit;
                     }
                 }
+            }
+            "--audio-backend" => {
+                let Some(value) = next_value(&mut args, "--audio-backend") else {
+                    return Startup::Exit;
+                };
+                if value.trim().is_empty() {
+                    eprintln!("ERROR: --audio-backend must not be empty");
+                    return Startup::Exit;
+                }
+                app.audio_backend = value;
             }
             "--autostart" => app.autostart_pending = true,
             "--print-qemu-command" => print_command = true,
@@ -295,6 +331,20 @@ impl AccessibleQemuApp {
             "user,id=net0".to_owned(),
             "-device".to_owned(),
             format!("virtio-net-pci,netdev=net0,bus=pcie.0,addr={NET_PCI_ADDR}"),
+            "-vga".to_owned(),
+            "none".to_owned(),
+            "-device".to_owned(),
+            format!("virtio-gpu-pci,bus=pcie.0,addr={GPU_PCI_ADDR}"),
+            "-audiodev".to_owned(),
+            format!("{},id={AUDIODEV_ID}", self.audio_backend.trim()),
+            "-device".to_owned(),
+            format!(
+                "virtio-sound-pci,audiodev={AUDIODEV_ID},bus=pcie.0,addr={AUDIO_PCI_ADDR}"
+            ),
+            "-device".to_owned(),
+            format!("virtio-keyboard-pci,bus=pcie.0,addr={KEYBOARD_PCI_ADDR}"),
+            "-device".to_owned(),
+            format!("virtio-tablet-pci,bus=pcie.0,addr={TABLET_PCI_ADDR}"),
         ]);
 
         if !self.iso_path.trim().is_empty() {
@@ -532,6 +582,12 @@ impl AccessibleQemuApp {
                 )
                 .labelled_by(label.id);
                 ui.end_row();
+
+                let label = ui.label("Audio backend");
+                ui.text_edit_singleline(&mut self.audio_backend)
+                    .on_hover_text("QEMU audio backend, for example dsound, coreaudio, sdl or pipewire")
+                    .labelled_by(label.id);
+                ui.end_row();
             });
 
         ui.add_space(16.0);
@@ -675,6 +731,21 @@ mod tests {
         assert!(args
             .iter()
             .any(|arg| arg == "virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "virtio-gpu-pci,bus=pcie.0,addr=0x9"));
+        assert!(args.iter().any(|arg| arg.starts_with("dsound,id=accessibleaudio")
+            || arg.starts_with("coreaudio,id=accessibleaudio")
+            || arg.starts_with("sdl,id=accessibleaudio")));
+        assert!(args.iter().any(|arg| {
+            arg == "virtio-sound-pci,audiodev=accessibleaudio,bus=pcie.0,addr=0xa"
+        }));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "virtio-keyboard-pci,bus=pcie.0,addr=0xb"));
+        assert!(args
+            .iter()
+            .any(|arg| arg == "virtio-tablet-pci,bus=pcie.0,addr=0xc"));
         assert!(args
             .iter()
             .any(|arg| arg.contains("if=none,id=osdisk") && arg.contains("format=qcow2")));
