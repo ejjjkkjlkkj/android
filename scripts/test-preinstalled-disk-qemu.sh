@@ -15,6 +15,7 @@ QEMU_ACCEL="${QEMU_ACCEL:-tcg}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-300}"
 TEST_MODE="${TEST_MODE:-all}"
 HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"
+AUDIO_CAPTURE_MIN_BYTES="${AUDIO_CAPTURE_MIN_BYTES:-4096}"
 FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'
 POST_FS_MARKER='ACCESSIBLE_ANDROID_POST_FS_DATA=PASS'
 
@@ -81,13 +82,15 @@ run_boot_test() {
   local log="$BUILD_LOG_DIR/preinstalled-android-${mode}.log"
   local -a firmware_args=()
   local -a hardware_args=()
+  local audio_capture="$BUILD_LOG_DIR/preinstalled-android-${mode}-accessibility.wav"
 
   if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    rm -f "$audio_capture"
     hardware_args=(
       -device virtio-gpu-pci
       -device virtio-keyboard-pci
       -device virtio-tablet-pci
-      -audiodev "driver=none,id=accessible_audio"
+      -audiodev "wav,id=accessible_audio,path=$audio_capture"
       -device "virtio-sound-pci,audiodev=accessible_audio"
     )
   fi
@@ -146,7 +149,17 @@ run_boot_test() {
   echo "PREINSTALLED_ANDROID_${mode^^} = PASS"
   echo "FRAMEWORK_BOOT = PASS"
   if [[ "$HARDWARE_PROFILE" == "full" ]]; then
+    local audio_bytes=0
+    if [[ -f "$audio_capture" ]]; then
+      audio_bytes="$(stat -c %s "$audio_capture" 2>/dev/null || echo 0)"
+    fi
+    if (( audio_bytes < AUDIO_CAPTURE_MIN_BYTES )); then
+      echo "ERROR: $mode boot produced no meaningful guest audio capture (${audio_bytes} bytes; minimum ${AUDIO_CAPTURE_MIN_BYTES})" >&2
+      return 9
+    fi
     echo "FULL_HARDWARE_BOOT = PASS"
+    echo "ACCESSIBILITY_AUDIO_CAPTURE = PASS (${audio_bytes} bytes)"
+    echo "AUDIO_CAPTURE = $audio_capture"
   fi
   echo "LOG = $log"
 }
