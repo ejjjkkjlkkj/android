@@ -77,6 +77,12 @@ ESPEAK_BUILT_PACKAGE="$(apk_package "$DEST_DIR/espeak-ng.apk")"
 [[ -n "$TALKBACK_BUILT_PACKAGE" ]] || fail "unable to determine TalkBack APK package"
 [[ -n "$ESPEAK_BUILT_PACKAGE" ]] || fail "unable to determine eSpeak APK package"
 
+# Package identity is a hard build contract. A drift here makes bootstrap and
+# runtime recovery target a component that can never be enabled.
+[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]] ||   fail "TalkBack APK package drift: built=$TALKBACK_BUILT_PACKAGE configured=$TALKBACK_PACKAGE"
+[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]] ||   fail "eSpeak APK package drift: built=$ESPEAK_BUILT_PACKAGE configured=$ESPEAK_PACKAGE"
+[[ "${TALKBACK_SERVICE%%/*}" == "$TALKBACK_PACKAGE" ]] ||   fail "TalkBack service package drift: service=$TALKBACK_SERVICE configured=$TALKBACK_PACKAGE"
+
 sha256sum "$DEST_DIR/talkback.apk" "$DEST_DIR/espeak-ng.apk" > "$DEST_DIR/SHA256SUMS.generated"
 
 cat > "$DEST_DIR/SOURCE-PROVENANCE.generated" <<EOF
@@ -93,6 +99,8 @@ EOF
 
 echo "ACCESSIBILITY_APPS = BUILT"
 echo "TALKBACK_APK_PACKAGE = $TALKBACK_BUILT_PACKAGE"
+echo "TALKBACK_PACKAGE_CONTRACT = PASS"
 echo "ESPEAK_APK_PACKAGE = $ESPEAK_BUILT_PACKAGE"
+echo "ESPEAK_PACKAGE_CONTRACT = PASS"
 echo "OUTPUT = $DEST_DIR"
 cat "$DEST_DIR/SHA256SUMS.generated"
