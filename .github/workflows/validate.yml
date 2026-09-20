@@ -191,5 +191,11 @@ jobs:
           grep -Fq 'ACCESSIBLE_ANDROID_POST_FS_DATA=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq 'ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq "FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'" scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-gpu-pci' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-keyboard-pci' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-tablet-pci' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-sound-pci' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'FULL_HARDWARE_BOOT = PASS' scripts/test-preinstalled-disk-qemu.sh
           PLAN_ONLY=1 bash scripts/build-preinstalled-disk.sh
           echo 'PREINSTALLED_DISK_CONTRACT = PASS'
