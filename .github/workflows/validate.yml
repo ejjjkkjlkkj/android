@@ -22,6 +22,7 @@ jobs:
       - name: Parse scripts
         run: |
           bash -n scripts/*.sh
+          bash -n device/accessibledroid/accessible_x86_64/accessibility-runtime-selftest.sh
           python3 -m py_compile scripts/*.py
 
       - name: ShellCheck
@@ -190,6 +191,12 @@ jobs:
           grep -Fq 'virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'ACCESSIBLE_ANDROID_POST_FS_DATA=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq 'ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
+          grep -Fq 'ro.boot.accessibledroid.selftest=1' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
+          grep -Fq 'accessibility-runtime-selftest.sh' device/accessibledroid/accessible_x86_64/accessible_android_x86_64_base.mk
+          grep -Fq 'KEYBOARD_FOCUS_NAVIGATION = PASS' device/accessibledroid/accessible_x86_64/accessibility-runtime-selftest.sh
+          grep -Fq 'TTS_SYNTHESIS_EN_US = PASS' device/accessibledroid/accessible_x86_64/accessibility-runtime-selftest.sh
+          grep -Fq 'TTS_SYNTHESIS_FR_FR = PASS' device/accessibledroid/accessible_x86_64/accessibility-runtime-selftest.sh
+          grep -Fq 'ACCESSIBILITY_SELFTEST = PASS' device/accessibledroid/accessible_x86_64/accessibility-runtime-selftest.sh
           grep -Fq "FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'" scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'HARDWARE_PROFILE="${HARDWARE_PROFILE:-full}"' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'virtio-gpu-pci' scripts/test-preinstalled-disk-qemu.sh
@@ -198,6 +205,12 @@ jobs:
           grep -Fq 'virtio-sound-pci' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'wav,id=accessible_audio' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'ACCESSIBILITY_AUDIO_CAPTURE = PASS' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'RUNTIME_SELFTEST' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'ACCESSIBILITY_RUNTIME_SELFTEST = PASS' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'BUILD_SELFTEST_DISK' scripts/build-preinstalled-disk.sh
+          grep -Fq "set default=0" scripts/build-preinstalled-disk.sh
+          grep -Fq 'accessible-android-selftest' scripts/build-preinstalled-disk.sh
+          grep -Fq 'androidboot.accessibledroid.selftest=1' scripts/build-preinstalled-disk.sh
           if grep -Fq 'driver=none,id=accessible_audio' scripts/test-preinstalled-disk-qemu.sh; then
             echo 'ERROR: full accessibility gate must not discard guest audio.' >&2
             exit 1
