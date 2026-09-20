@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   final-android-gate:
-    name: Build latest PR head and prove BIOS plus UEFI boot
+    name: Build current main and prove BIOS plus UEFI boot
     # Recovery is archival. Even if preservation of the old local commit fails,
     # the current GitHub Android head must still receive its independent final gate.
     if: >-
@@ -26,7 +26,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, android-build]
     timeout-minutes: 720
     env:
-      TARGET_REF: fix/queue-android-final-builds-20260913
+      TARGET_REF: main
       BOOT_TIMEOUT_SECONDS: '360'
       SYNC_RETRIES: '5'
       SYNC_RETRY_DELAY_SECONDS: '10'
@@ -36,10 +36,10 @@ jobs:
       ANDROID_BUILD_SWAP_MAX_ADD_GIB: '16'
 
     steps:
-      - name: Checkout latest Android gate source without deleting persistent workspace
+      - name: Checkout current main gate source without deleting persistent workspace
         uses: actions/checkout@v7.0.1
         with:
-          ref: fix/queue-android-final-builds-20260913
+          ref: main
           fetch-depth: 0
           clean: false
           persist-credentials: false
