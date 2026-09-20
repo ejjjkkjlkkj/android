@@ -38,7 +38,17 @@ clean_cr() {
 extract_accessibility_section() {
   local start="$1"
   local stop="$2"
-  sed -n "/$start/,/$stop/p"
+  awk -v start="$start" -v stop="$stop" '
+    index($0, start) {
+      inside = 1
+    }
+    inside && index($0, stop) {
+      exit
+    }
+    inside {
+      print
+    }
+  '
 }
 
 echo "Waiting for Android ADB device..."
