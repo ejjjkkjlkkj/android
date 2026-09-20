@@ -27,6 +27,19 @@ jobs:
       - name: ShellCheck
         run: shellcheck scripts/*.sh
 
+      - name: Test accessibility runtime gates
+        run: |
+          set -euo pipefail
+          bash scripts/test-accessibility-runtime-validator.sh
+          source config/accessibility-upstreams.env
+          test "$TALKBACK_PACKAGE" = "com.android.talkback"
+          test "$TALKBACK_SERVICE" = "com.android.talkback/com.google.android.marvin.talkback.TalkBackService"
+          grep -Fq 'TALKBACK_PACKAGE_CONTRACT = PASS' scripts/build-accessibility-apps.sh
+          grep -Fq 'TTS_SYNTHESIS_EN_US = PASS' scripts/verify-accessibility-runtime-adb.sh
+          grep -Fq 'TTS_SYNTHESIS_FR_FR = PASS' scripts/verify-accessibility-runtime-adb.sh
+          grep -Fq 'DISPLAY_MANAGER = PASS' scripts/verify-accessibility-runtime-adb.sh
+          echo 'ACCESSIBILITY_RUNTIME_GATES = PASS'
+
       - name: Reject packaged Android binaries in repository
         run: bash scripts/check-no-proprietary.sh
 
