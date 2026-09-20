@@ -48,6 +48,9 @@ jobs:
           test -n "$GMS_PRODUCT"
           echo 'EDITION_CONFIG = PASS'
 
+      - name: Validate accessibility package and runtime contract
+        run: bash scripts/validate-accessibility-contract.sh
+
       - name: Validate Android 17 lunch configuration
         run: |
           set -euo pipefail
