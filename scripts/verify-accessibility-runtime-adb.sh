@@ -88,6 +88,13 @@ esac
 default_tts="$(run_shell settings get secure tts_default_synth | clean_cr)"
 [[ "$default_tts" == "$ESPEAK_PACKAGE" ]] || fail "tts_default_synth=$default_tts (expected $ESPEAK_PACKAGE)"
 
+tts_manager="$(run_shell service check texttospeech 2>/dev/null | clean_cr || true)"
+[[ -n "$tts_manager" && "$tts_manager" != *"not found"* ]] || fail "TextToSpeechManager service is unavailable"
+
+espeak_dump="$(run_shell dumpsys package "$ESPEAK_PACKAGE" 2>/dev/null | clean_cr || true)"
+grep -Fq "android.intent.action.TTS_SERVICE" <<<"$espeak_dump" || \
+  fail "eSpeak package does not register an Android TTS service"
+
 talkback_dump="$(run_shell dumpsys package "$TALKBACK_PACKAGE" 2>/dev/null | clean_cr || true)"
 grep -Fq "TalkBackService" <<<"$talkback_dump" || fail "TalkBackService is not registered in PackageManager"
 
@@ -144,15 +151,25 @@ audio_policy_dump="$(run_shell dumpsys media.audio_policy 2>/dev/null | clean_cr
 input_dump="$(run_shell dumpsys input 2>/dev/null | clean_cr || true)"
 [[ -n "$input_dump" ]] || fail "InputManager dump is empty"
 
+surface_flinger_dump="$(run_shell dumpsys SurfaceFlinger 2>/dev/null | clean_cr || true)"
+[[ -n "$surface_flinger_dump" ]] || fail "SurfaceFlinger dump is empty"
+
+display_dump="$(run_shell dumpsys display 2>/dev/null | clean_cr || true)"
+[[ -n "$display_dump" ]] || fail "DisplayManager dump is empty"
+
 echo "ANDROID_BOOT_COMPLETED = PASS"
 echo "TALKBACK_PACKAGE = PASS"
 echo "TALKBACK_SERVICE_REGISTERED = PASS"
 echo "TALKBACK_ENABLED = PASS"
 echo "TALKBACK_CONNECTED = PASS"
 echo "ESPEAK_PACKAGE = PASS"
+echo "ESPEAK_SERVICE_REGISTERED = PASS"
 echo "OFFLINE_TTS_DEFAULT = PASS"
+echo "TTS_MANAGER = PASS"
 echo "AUDIO_SERVICE = PASS"
 echo "AUDIO_FLINGER = PASS"
 echo "AUDIO_POLICY = PASS"
 echo "INPUT_MANAGER = PASS"
+echo "SURFACE_FLINGER = PASS"
+echo "DISPLAY_MANAGER = PASS"
 echo "ACCESSIBILITY_RUNTIME = PASS"
