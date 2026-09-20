@@ -76,6 +76,10 @@ TALKBACK_BUILT_PACKAGE="$(apk_package "$DEST_DIR/talkback.apk")"
 ESPEAK_BUILT_PACKAGE="$(apk_package "$DEST_DIR/espeak-ng.apk")"
 [[ -n "$TALKBACK_BUILT_PACKAGE" ]] || fail "unable to determine TalkBack APK package"
 [[ -n "$ESPEAK_BUILT_PACKAGE" ]] || fail "unable to determine eSpeak APK package"
+[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]] || \
+  fail "TalkBack APK package mismatch: built=$TALKBACK_BUILT_PACKAGE configured=$TALKBACK_PACKAGE"
+[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]] || \
+  fail "eSpeak APK package mismatch: built=$ESPEAK_BUILT_PACKAGE configured=$ESPEAK_PACKAGE"
 
 sha256sum "$DEST_DIR/talkback.apk" "$DEST_DIR/espeak-ng.apk" > "$DEST_DIR/SHA256SUMS.generated"
 
