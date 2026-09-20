@@ -107,7 +107,7 @@ After Android reaches `sys.boot_completed=1`, validate the actual guest state th
 bash scripts/verify-accessibility-runtime-adb.sh
 ```
 
-For a non-default ADB target, set `ADB_SERIAL` first. The validator fails unless TalkBack and eSpeak are installed, TalkBack is registered and enabled, Android accessibility is enabled, eSpeak is the configured default TTS engine, AccessibilityManager reports TalkBack, and AudioService is available.
+For a non-default ADB target, set `ADB_SERIAL` first. The validator fails unless TalkBack and eSpeak are installed, TalkBack is registered, enabled, and actually bound to AccessibilityManagerService, Android accessibility is enabled, eSpeak is the configured default TTS engine, AudioService and AudioFlinger are available, and offline eSpeak successfully completes deterministic English and French synthesis.
 
 To recover speech settings without reinstalling the VM:
 
@@ -116,3 +116,6 @@ bash scripts/accessibility-recovery.sh
 ```
 
 The recovery script preserves any other enabled accessibility services, adds TalkBack only when missing, selects offline eSpeak, and then runs the same runtime validator before reporting PASS.
+
+
+A runtime release proof must include `TALKBACK_BOUND = PASS`, `TTS_SYNTHESIS_EN_US = PASS`, `TTS_SYNTHESIS_FR_FR = PASS`, and `ACCESSIBILITY_RUNTIME = PASS`. Package presence or secure settings alone are not sufficient.
