@@ -1,5 +1,5 @@
 Trigger the self-hosted AccessibleAndroid recovery/resume workflow.
-Requested: 2026-09-20 21:21 Europe/Paris
+Requested: 2026-09-20 21:24 Europe/Paris
 Target: main
 Source commit: fe6fe88d450713b5d46c970e38d3335f5021f59c
-Purpose: rebuild current main after TalkBack package/bootstrap alignment and bilingual offline TTS runtime hardening; regenerate the preinstalled Android 17 disk/ISO and re-run BIOS/UEFI gates.
+Purpose: run only the latest main after TalkBack bootstrap/package alignment, bilingual offline TTS runtime smoke coverage, and stale-build concurrency cleanup.
