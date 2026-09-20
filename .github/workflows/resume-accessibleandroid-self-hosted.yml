@@ -169,15 +169,16 @@ jobs:
           BUILD_KERNEL: '1'
         run: bash scripts/build-from-zero.sh accessible-aosp
 
-      - name: Build preinstalled BIOS and UEFI disk
+      - name: Build preinstalled BIOS and UEFI disk plus isolated self-test copy
         shell: bash
         env:
           EXPORT_ALL_FORMATS: '0'
+          BUILD_SELFTEST_DISK: '1'
         run: bash scripts/build-preinstalled-disk.sh
 
-      - name: Validate BIOS and UEFI boot in QEMU
+      - name: Validate BIOS and UEFI boot with full accessibility runtime self-test
         shell: bash
-        run: TEST_MODE=all bash scripts/test-preinstalled-disk-qemu.sh
+        run: TEST_MODE=all HARDWARE_PROFILE=full RUNTIME_SELFTEST=1 bash scripts/test-preinstalled-disk-qemu.sh
 
       - name: Record recovery and build provenance
         if: always()
