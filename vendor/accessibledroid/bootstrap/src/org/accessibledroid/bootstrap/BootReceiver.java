@@ -75,6 +75,18 @@ public final class BootReceiver extends BroadcastReceiver {
         }
     }
 
+    private static boolean containsService(String services, String target) {
+        if (services == null || services.isBlank()) {
+            return false;
+        }
+        for (String service : services.split(":")) {
+            if (target.equals(service)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean configureAndVerify(Context context) {
         final ContentResolver resolver = context.getContentResolver();
         final String talkBackComponent =
@@ -107,8 +119,7 @@ public final class BootReceiver extends BroadcastReceiver {
                 resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0);
         final String verifiedTts = Settings.Secure.getString(resolver, TTS_DEFAULT_SYNTH);
 
-        final boolean talkBackEnabled = verifiedServices != null
-                && Set.of(verifiedServices.split(":")).contains(talkBackComponent);
+        final boolean talkBackEnabled = containsService(verifiedServices, talkBackComponent);
         final boolean ready = servicesWritten
                 && accessibilityWritten
                 && ttsWritten
