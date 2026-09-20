@@ -661,7 +661,9 @@ impl eframe::App for AccessibleUtmApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| self.render(ui));
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| self.render(ui));
+        });
     }
 }
 
