@@ -7,7 +7,19 @@ mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 
-exec </dev/ttyS0 >/dev/ttyS0 2>&1
+# Do not make PID 1 depend on a VMware/QEMU-specific serial device. The kernel
+# already starts init with /dev/console attached to stdin/stdout/stderr. Some
+# VMware profiles expose no ttyS0 at all; forcing redirection to /dev/ttyS0
+# makes the init script exit and produces "Attempted to kill init".
+if [ -c /dev/ttyS0 ]; then
+  echo "SMOKE_CONSOLE_DEVICE=/dev/ttyS0"
+elif [ -c /dev/tty0 ]; then
+  echo "SMOKE_CONSOLE_DEVICE=/dev/tty0"
+elif [ -c /dev/console ]; then
+  echo "SMOKE_CONSOLE_DEVICE=/dev/console"
+else
+  echo "SMOKE_CONSOLE_DEVICE=INHERITED"
+fi
 
 echo
 echo "ACCESSIBLE_ANDROID_KERNEL_BOOT=PASS"
