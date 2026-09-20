@@ -51,10 +51,12 @@ grep -Fq 'AccessibilityBootstrap' "$PRODUCT_MK" || fail "AccessibilityBootstrap 
 grep -Fq 'AccessibleTalkBack' "$PRODUCT_MK" || fail "TalkBack not included in product"
 grep -Fq 'AccessibleEspeakTts' "$PRODUCT_MK" || fail "eSpeak not included in product"
 
-# shellcheck disable=SC2016 -- this is an intentional literal code-contract check.
+# Intentional literal code-contract check.
+# shellcheck disable=SC2016
 grep -Fq '[[ "$TALKBACK_BUILT_PACKAGE" == "$TALKBACK_PACKAGE" ]]' "$BUILD_APPS" || \
   fail "TalkBack APK identity gate missing"
-# shellcheck disable=SC2016 -- this is an intentional literal code-contract check.
+# Intentional literal code-contract check.
+# shellcheck disable=SC2016
 grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$BUILD_APPS" || \
   fail "eSpeak APK identity gate missing"
 
