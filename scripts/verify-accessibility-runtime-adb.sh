@@ -8,6 +8,7 @@ source "$ROOT_DIR/config/accessibility-upstreams.env"
 ADB="${ADB:-adb}"
 ADB_SERIAL="${ADB_SERIAL:-}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-180}"
+ACCESSIBILITY_CONNECT_TIMEOUT_SECONDS="${ACCESSIBILITY_CONNECT_TIMEOUT_SECONDS:-30}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -31,6 +32,26 @@ run_shell() {
 
 clean_cr() {
   tr -d '\r'
+}
+
+extract_state_block() {
+  local heading="$1"
+  awk -v heading="$heading" '
+    index($0, heading) {
+      found = 1
+      print
+      if (index($0, "}")) {
+        exit
+      }
+      next
+    }
+    found {
+      print
+      if (index($0, "}")) {
+        exit
+      }
+    }
+  '
 }
 
 echo "Waiting for Android ADB device..."
@@ -70,17 +91,68 @@ default_tts="$(run_shell settings get secure tts_default_synth | clean_cr)"
 talkback_dump="$(run_shell dumpsys package "$TALKBACK_PACKAGE" 2>/dev/null | clean_cr || true)"
 grep -Fq "TalkBackService" <<<"$talkback_dump" || fail "TalkBackService is not registered in PackageManager"
 
-accessibility_dump="$(run_shell dumpsys accessibility 2>/dev/null | clean_cr || true)"
-grep -Fq "$TALKBACK_PACKAGE" <<<"$accessibility_dump" || fail "AccessibilityManager does not report TalkBack"
+# Settings alone are not proof that an AccessibilityService is connected. Android
+# keeps separate enabled, binding, bound and crashed service state. Wait briefly
+# for AccessibilityManager to finish binding TalkBack, then require a live
+# ActivityManager service record and reject binding/crashed states.
+talkback_class="${TALKBACK_SERVICE#*/}"
+connect_deadline=$((SECONDS + ACCESSIBILITY_CONNECT_TIMEOUT_SECONDS))
+talkback_connected=0
+last_accessibility_dump=""
+last_activity_services_dump=""
+
+while true; do
+  last_accessibility_dump="$(run_shell dumpsys accessibility 2>/dev/null | clean_cr || true)"
+  enabled_block="$(printf '%s\n' "$last_accessibility_dump" | extract_state_block " Enabled services:{")"
+  binding_block="$(printf '%s\n' "$last_accessibility_dump" | extract_state_block " Binding services:{")"
+  crashed_block="$(printf '%s\n' "$last_accessibility_dump" | extract_state_block " Crashed services:{")"
+  last_activity_services_dump="$(
+    run_shell dumpsys activity services "$TALKBACK_PACKAGE" 2>/dev/null | clean_cr || true
+  )"
+
+  if grep -Fq "$TALKBACK_SERVICE" <<<"$enabled_block" \
+      && ! grep -Fq "$TALKBACK_SERVICE" <<<"$binding_block" \
+      && ! grep -Fq "$TALKBACK_SERVICE" <<<"$crashed_block" \
+      && grep -Fq "$talkback_class" <<<"$last_activity_services_dump"; then
+    talkback_connected=1
+    break
+  fi
+
+  if (( SECONDS >= connect_deadline )); then
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$talkback_connected" != "1" ]]; then
+  echo "AccessibilityManager state:" >&2
+  printf '%s\n' "$last_accessibility_dump" >&2
+  echo "ActivityManager TalkBack service state:" >&2
+  printf '%s\n' "$last_activity_services_dump" >&2
+  fail "TalkBack is enabled but not stably connected to AccessibilityManager"
+fi
 
 audio_dump="$(run_shell dumpsys audio 2>/dev/null | clean_cr || true)"
 [[ -n "$audio_dump" ]] || fail "AudioService dump is empty"
+
+audio_flinger_dump="$(run_shell dumpsys media.audio_flinger 2>/dev/null | clean_cr || true)"
+[[ -n "$audio_flinger_dump" ]] || fail "AudioFlinger dump is empty"
+
+audio_policy_dump="$(run_shell dumpsys media.audio_policy 2>/dev/null | clean_cr || true)"
+[[ -n "$audio_policy_dump" ]] || fail "AudioPolicy dump is empty"
+
+input_dump="$(run_shell dumpsys input 2>/dev/null | clean_cr || true)"
+[[ -n "$input_dump" ]] || fail "InputManager dump is empty"
 
 echo "ANDROID_BOOT_COMPLETED = PASS"
 echo "TALKBACK_PACKAGE = PASS"
 echo "TALKBACK_SERVICE_REGISTERED = PASS"
 echo "TALKBACK_ENABLED = PASS"
+echo "TALKBACK_CONNECTED = PASS"
 echo "ESPEAK_PACKAGE = PASS"
 echo "OFFLINE_TTS_DEFAULT = PASS"
 echo "AUDIO_SERVICE = PASS"
+echo "AUDIO_FLINGER = PASS"
+echo "AUDIO_POLICY = PASS"
+echo "INPUT_MANAGER = PASS"
 echo "ACCESSIBILITY_RUNTIME = PASS"
