@@ -85,9 +85,15 @@ run_boot_test() {
       "${firmware_args[@]}" \
       -drive "if=none,id=$VM_OS_DISK_ID,file=$DISK,format=qcow2,cache=writeback" \
       -device "virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR,bootindex=1" \
-      -device 'virtio-rng-pci,bus=pcie.0,addr=0x7' \
+      -device "virtio-rng-pci,bus=pcie.0,addr=$VM_RNG_PCI_ADDR" \
       -netdev user,id=net0 \
-      -device 'virtio-net-pci,netdev=net0,bus=pcie.0,addr=0x8' \
+      -device "virtio-net-pci,netdev=net0,bus=pcie.0,addr=$VM_NET_PCI_ADDR" \
+      -vga none \
+      -device "virtio-gpu-pci,bus=pcie.0,addr=$VM_GPU_PCI_ADDR" \
+      -audiodev none,id=accessibleaudio \
+      -device "virtio-sound-pci,audiodev=accessibleaudio,bus=pcie.0,addr=$VM_AUDIO_PCI_ADDR" \
+      -device "virtio-keyboard-pci,bus=pcie.0,addr=$VM_KEYBOARD_PCI_ADDR" \
+      -device "virtio-tablet-pci,bus=pcie.0,addr=$VM_TABLET_PCI_ADDR" \
       -boot order=c \
       -snapshot \
       -display none \
