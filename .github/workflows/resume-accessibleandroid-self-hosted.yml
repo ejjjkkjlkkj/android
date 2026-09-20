@@ -13,7 +13,9 @@ permissions:
 
 concurrency:
   group: accessibleandroid-recovery-resume-${{ github.ref }}
-  cancel-in-progress: false
+  # Only the newest main snapshot is useful on the scarce Android builder.
+  # Supersede stale queued/running recovery builds instead of blocking fixes.
+  cancel-in-progress: true
 
 jobs:
   recover-build-test:
