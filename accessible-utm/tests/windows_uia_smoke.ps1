@@ -207,6 +207,30 @@ function Wait-ForNamedElement {
     throw "UIA element '$Name' was not exposed. Element count=$($snapshot.Count). Failure tree: $failureTreePath. Seen names:`n  - $names"
 }
 
+function Get-AccessibleUtmFocusedElement {
+    param([int]$ProcessId)
+
+    try {
+        $element = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -eq $element) {
+            return $null
+        }
+        if ([int]$element.Current.ProcessId -ne $ProcessId) {
+            return $null
+        }
+
+        return [pscustomobject]@{
+            Name = [string]$element.Current.Name
+            ControlType = [string]$element.Current.ControlType.ProgrammaticName
+            IsOffscreen = [bool]$element.Current.IsOffscreen
+            HasKeyboardFocus = [bool]$element.Current.HasKeyboardFocus
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
 $process = Start-Process -FilePath $exePath -ArgumentList @('--config', $configPath) -PassThru
 
 try {
@@ -271,6 +295,66 @@ try {
         [void](Wait-ForNamedElement -WindowElement $window -Name $name)
     }
 
+    $tabTargets = @(
+        'Start virtual machine (F5)',
+        'Print QEMU command (F9)'
+    )
+    $tabReached = @{}
+    $tabTrace = [System.Collections.Generic.List[object]]::new()
+
+    [void][AccessibleUtmFocus]::SetForegroundWindow($nativeHandle)
+    Start-Sleep -Milliseconds 200
+
+    for ($step = 1; $step -le 64; $step++) {
+        [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+        Start-Sleep -Milliseconds 100
+
+        $focused = Get-AccessibleUtmFocusedElement -ProcessId $process.Id
+        if ($null -eq $focused) {
+            continue
+        }
+
+        $tabTrace.Add([pscustomobject]@{
+            Step = $step
+            Name = $focused.Name
+            ControlType = $focused.ControlType
+            IsOffscreen = $focused.IsOffscreen
+            HasKeyboardFocus = $focused.HasKeyboardFocus
+        })
+
+        if (($tabTargets -contains $focused.Name) -and -not $tabReached.ContainsKey($focused.Name)) {
+            Start-Sleep -Milliseconds 150
+            $confirmed = Get-AccessibleUtmFocusedElement -ProcessId $process.Id
+            if ($null -ne $confirmed -and $confirmed.Name -eq $focused.Name) {
+                $tabReached[$focused.Name] = $confirmed
+            }
+            else {
+                $tabReached[$focused.Name] = $focused
+            }
+        }
+
+        $missing = @($tabTargets | Where-Object { -not $tabReached.ContainsKey($_) })
+        if ($missing.Count -eq 0) {
+            break
+        }
+    }
+
+    $tabTracePath = Join-Path $tempRoot 'accessible-utm-tab-traversal.json'
+    $tabTrace |
+        ConvertTo-Json -Depth 4 |
+        Set-Content -LiteralPath $tabTracePath -Encoding UTF8
+
+    $missingTabTargets = @($tabTargets | Where-Object { -not $tabReached.ContainsKey($_) })
+    if ($missingTabTargets.Count -gt 0) {
+        throw "Tab traversal did not reach required controls: $($missingTabTargets -join ', '). Trace: $tabTracePath"
+    }
+
+    foreach ($target in $tabTargets) {
+        if ([bool]$tabReached[$target].IsOffscreen) {
+            throw "Tab focus reached '$target' but UI Automation still reports it offscreen. Scroll/focus integration is broken. Trace: $tabTracePath"
+        }
+    }
+
     $before = @(Get-UiAutomationSnapshot -WindowElement $window)
     if ($before.Name -contains 'QEMU command printed to stdout.') {
         throw 'Unexpected precondition: F9 status was already present before keyboard injection.'
@@ -293,6 +377,7 @@ try {
         Set-Content -LiteralPath $treePath -Encoding UTF8
 
     Write-Host 'ACCESSIBLE_UTM_UIA_TREE = PASS'
+    Write-Host 'ACCESSIBLE_UTM_TAB_TRAVERSAL = PASS'
     Write-Host 'ACCESSIBLE_UTM_KEYBOARD_F9 = PASS'
     Write-Host "ACCESSIBLE_UTM_UIA_ELEMENT_COUNT = $($snapshot.Count)"
     Write-Host "ACCESSIBLE_UTM_UIA_EVIDENCE = $treePath"
