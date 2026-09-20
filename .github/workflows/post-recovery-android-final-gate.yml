@@ -146,19 +146,20 @@ jobs:
           mkdir -p .work/logs
           bash scripts/build-from-zero.sh accessible-aosp 2>&1 | tee .work/logs/post-recovery-final-aosp.txt
 
-      - name: Build deterministic BIOS and UEFI preinstalled disk
+      - name: Build deterministic BIOS and UEFI preinstalled disk plus isolated self-test copy
         shell: bash
         env:
           EXPORT_ALL_FORMATS: '0'
+          BUILD_SELFTEST_DISK: '1'
         run: |
           set -euo pipefail
           bash scripts/build-preinstalled-disk.sh 2>&1 | tee .work/logs/post-recovery-final-disk.txt
 
-      - name: Prove Android boot in BIOS and UEFI with full VM hardware
+      - name: Prove Android boot and full accessibility runtime in BIOS and UEFI
         shell: bash
         run: |
           set -euo pipefail
-          TEST_MODE=all HARDWARE_PROFILE=full bash scripts/test-preinstalled-disk-qemu.sh 2>&1 | tee .work/logs/post-recovery-final-qemu.txt
+          TEST_MODE=all HARDWARE_PROFILE=full RUNTIME_SELFTEST=1 bash scripts/test-preinstalled-disk-qemu.sh 2>&1 | tee .work/logs/post-recovery-final-qemu.txt
 
       - name: Verify final QCOW2 and hashes
         shell: bash
