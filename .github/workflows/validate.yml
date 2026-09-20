@@ -27,6 +27,9 @@ jobs:
       - name: ShellCheck
         run: shellcheck scripts/*.sh
 
+      - name: Unit test accessibility runtime validator
+        run: bash scripts/test-accessibility-runtime-validator.sh
+
       - name: Reject packaged Android binaries in repository
         run: bash scripts/check-no-proprietary.sh
 
