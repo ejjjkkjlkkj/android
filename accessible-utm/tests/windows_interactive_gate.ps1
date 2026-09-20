@@ -98,8 +98,10 @@ $report = [ordered]@{
         rust_tests = if ($SkipBuild) { 'SKIPPED_BY_REQUEST' } else { 'PASS' }
         release_build = if ($SkipBuild) { 'SKIPPED_BY_REQUEST' } else { 'PASS' }
         windows_uia_tree = 'PASS'
+        tab_traversal = 'PASS'
         keyboard_f9 = 'PASS'
-        evidence_file = (Join-Path $output 'accessible-utm-uia-tree.json')
+        uia_evidence_file = (Join-Path $output 'accessible-utm-uia-tree.json')
+        tab_traversal_evidence_file = (Join-Path $output 'accessible-utm-tab-traversal.json')
     }
     screen_readers = @($screenReaders)
     manual_release_gate = @(
@@ -118,6 +120,7 @@ AccessibleUTM interactive Windows evidence
 ==========================================
 
 Automated UIA tree: PASS
+Automated Tab traversal to F5/F9: PASS
 Automated F9 keyboard path: PASS
 Locked Rust dependencies: PASS
 Executable SHA-256: $exeHash
