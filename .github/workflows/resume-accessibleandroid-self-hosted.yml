@@ -21,7 +21,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, android-build]
     timeout-minutes: 720
     env:
-      TARGET_REF: 'fix/queue-android-final-builds-20260913'
+      TARGET_REF: 'main'
       ANDROID_BUILD_JOBS: '4'
       KERNEL_SYNC_JOBS: '4'
       SYNC_JOBS: '4'
@@ -51,10 +51,10 @@ jobs:
             echo 'No existing Git checkout was present.'
           fi
 
-      - name: Checkout latest GitHub Android work without deleting persistent workspaces
+      - name: Checkout current main without deleting persistent workspaces
         uses: actions/checkout@v7.0.1
         with:
-          ref: fix/queue-android-final-builds-20260913
+          ref: main
           fetch-depth: 0
           clean: false
           persist-credentials: true
