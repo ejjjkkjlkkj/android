@@ -182,9 +182,20 @@ jobs:
           test "$VM_USERDATA_SIZE_MIB" = "8192"
           test "$VM_BIOS_GRUB_SIZE_MIB" -ge 1
           test "$VM_OS_DISK_PCI_ADDR" = "0x6"
+          test "$VM_RNG_PCI_ADDR" = "0x7"
+          test "$VM_NET_PCI_ADDR" = "0x8"
+          test "$VM_GPU_PCI_ADDR" = "0x9"
+          test "$VM_AUDIO_PCI_ADDR" = "0xa"
+          test "$VM_KEYBOARD_PCI_ADDR" = "0xb"
+          test "$VM_TABLET_PCI_ADDR" = "0xc"
           test "$ANDROID_BOOT_DEVICES" = "pci0000:00/0000:00:06.0"
           grep -Fq 'androidboot.boot_devices=pci0000:00/0000:00:06.0' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-gpu-pci,bus=pcie.0,addr=$VM_GPU_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-sound-pci,audiodev=accessibleaudio,bus=pcie.0,addr=$VM_AUDIO_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-keyboard-pci,bus=pcie.0,addr=$VM_KEYBOARD_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'virtio-tablet-pci,bus=pcie.0,addr=$VM_TABLET_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'vmwgfx.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'ACCESSIBLE_ANDROID_POST_FS_DATA=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq 'ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq "FRAMEWORK_MARKER='ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS'" scripts/test-preinstalled-disk-qemu.sh
