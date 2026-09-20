@@ -717,10 +717,8 @@ mod tests {
 
     #[test]
     fn pins_android_disk_and_devices_to_stable_pci_addresses() {
-        let app = AccessibleQemuApp {
-            disk_path: "AccessibleAndroid.qcow2".to_owned(),
-            ..AccessibleQemuApp::default()
-        };
+        let mut app = AccessibleQemuApp::default();
+        app.disk_path = "AccessibleAndroid.qcow2".to_owned();
         let args = app.qemu_args().unwrap();
         assert!(args.iter().any(|arg| {
             arg == "virtio-blk-pci,drive=osdisk,bus=pcie.0,addr=0x6,bootindex=1"
