@@ -1,0 +1,52 @@
+name: AccessibleAndroid runner probe
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/trigger/runner-probe.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessibleandroid-runner-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Probe generic Linux self-hosted Android builder
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+
+      - name: Report runner and Android workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RUNNER_NAME=$RUNNER_NAME"
+          echo "RUNNER_OS=$RUNNER_OS"
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          uname -a
+          nproc
+          free -h || true
+          df -h .
+          if [[ -d .work/aosp/.repo ]]; then
+            echo 'AOSP_WORKSPACE_STATE=incremental'
+          else
+            echo 'AOSP_WORKSPACE_STATE=missing'
+          fi
+          for command_name in repo git python3 java qemu-img qemu-system-x86_64; do
+            if command -v "$command_name" >/dev/null 2>&1; then
+              echo "$command_name=PASS ($(command -v "$command_name"))"
+            else
+              echo "$command_name=MISSING"
+            fi
+          done
+          echo 'GENERIC_LINUX_SELF_HOSTED = PASS'
