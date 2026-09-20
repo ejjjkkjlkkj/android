@@ -67,6 +67,22 @@ The GUI must remain usable for low-vision users:
 - no mandatory animation;
 - layouts must remain usable with large text and increased scaling.
 
+## Deterministic guest hardware
+
+The reference VM presents the same accessibility-critical devices on stable PCI addresses:
+
+- Android OS disk: virtio-blk at `0000:00:06.0`;
+- entropy: virtio-rng at `0000:00:07.0`;
+- network: virtio-net at `0000:00:08.0`;
+- display: virtio-gpu at `0000:00:09.0`;
+- audio: virtio-sound at `0000:00:0a.0`;
+- keyboard: virtio-keyboard at `0000:00:0b.0`;
+- absolute pointer: virtio-tablet at `0000:00:0c.0`.
+
+AccessibleQEMU selects a host audio backend appropriate to the platform (DirectSound on Windows, CoreAudio on macOS, SDL by default on Linux). The backend can be overridden with `--audio-backend` without changing the guest virtio-sound device.
+
+The headless boot gate presents the same guest GPU, sound and input devices. It uses QEMU's null audio backend only for automated boot testing so CI does not require host speakers.
+
 ## Guest accessibility
 
 AccessibleQEMU must not depend on the guest framebuffer for accessibility.
