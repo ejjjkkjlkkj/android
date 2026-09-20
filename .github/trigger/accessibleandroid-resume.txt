@@ -1,5 +1,5 @@
 Trigger the self-hosted AccessibleAndroid recovery/resume workflow.
-Requested: 2026-09-20 21:31 Europe/Paris
+Requested: 2026-09-20 21:47 Europe/Paris
 Target: main
-Source commit: 4acbe50f17ab2ff1a9303eb8df082411391a3a10
-Purpose: rebuild latest AccessibleAndroid with real QEMU guest audio capture, BIOS+UEFI full-hardware boot gates, TalkBack bound-state validation, bilingual offline TTS smoke coverage, and preserved final evidence.
+Source commit: 58122530c3b69fe0d56d5e8c109a156e2ec63608
+Purpose: rebuild latest AccessibleAndroid and prove BIOS+UEFI boot using an isolated self-test disk with bound TalkBack, offline eSpeak EN-US/FR-FR synthesis, real WAV guest audio, Android keyboard focus navigation, and preserved evidence. The normal user QCOW2 must remain on the non-self-test GRUB entry.
