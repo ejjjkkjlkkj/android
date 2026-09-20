@@ -34,6 +34,17 @@ jobs:
           source config/accessibility-upstreams.env
           test "$TALKBACK_PACKAGE" = "com.android.talkback"
           test "$TALKBACK_SERVICE" = "com.android.talkback/com.google.android.marvin.talkback.TalkBackService"
+          talkback_class="${TALKBACK_SERVICE#*/}"
+          grep -Fq "private static final String TALKBACK_PACKAGE = \"$TALKBACK_PACKAGE\";" \
+            vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
+          grep -Fq "private static final String TALKBACK_CLASS = \"$talkback_class\";" \
+            vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
+          grep -Fq "private static final String ESPEAK_PACKAGE = \"$ESPEAK_PACKAGE\";" \
+            vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/BootReceiver.java
+          grep -Fq "private static final String ESPEAK_PACKAGE = \"$ESPEAK_PACKAGE\";" \
+            vendor/accessibledroid/bootstrap/src/org/accessibledroid/bootstrap/SpeechSmokeReceiver.java
+          grep -Fq "<package android:name=\"$TALKBACK_PACKAGE\" />" vendor/accessibledroid/bootstrap/AndroidManifest.xml
+          grep -Fq "<package android:name=\"$ESPEAK_PACKAGE\" />" vendor/accessibledroid/bootstrap/AndroidManifest.xml
           grep -Fq 'TALKBACK_PACKAGE_CONTRACT = PASS' scripts/build-accessibility-apps.sh
           grep -Fq 'TTS_SYNTHESIS_EN_US = PASS' scripts/verify-accessibility-runtime-adb.sh
           grep -Fq 'TTS_SYNTHESIS_FR_FR = PASS' scripts/verify-accessibility-runtime-adb.sh
