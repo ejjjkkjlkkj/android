@@ -87,8 +87,8 @@ run_boot_test() {
       -device virtio-gpu-pci
       -device virtio-keyboard-pci
       -device virtio-tablet-pci
-      -audiodev driver=none,id=accessible_audio
-      -device virtio-sound-pci,audiodev=accessible_audio
+      -audiodev "driver=none,id=accessible_audio"
+      -device "virtio-sound-pci,audiodev=accessible_audio"
     )
   fi
 
