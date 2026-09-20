@@ -63,6 +63,9 @@ grep -Fq '[[ "$ESPEAK_BUILT_PACKAGE" == "$ESPEAK_PACKAGE" ]]' "$BUILD_APPS" || \
   fail "eSpeak APK identity gate missing"
 
 grep -Fq 'TALKBACK_BOUND = PASS' "$RUNTIME_VALIDATOR" || fail "bound TalkBack runtime gate missing"
+grep -Fq 'KEYBOARD_FOCUS_NAVIGATION = PASS' "$RUNTIME_VALIDATOR" || fail "keyboard focus navigation runtime gate missing"
+grep -Fq 'uiautomator dump' "$RUNTIME_VALIDATOR" || fail "UI hierarchy keyboard navigation proof missing"
+grep -Fq 'KEYCODE_TAB' "$RUNTIME_VALIDATOR" || fail "Tab keyboard injection proof missing"
 grep -Fq 'TTS_SYNTHESIS_EN_US = PASS' "$RUNTIME_VALIDATOR" || fail "English synthesis runtime gate missing"
 grep -Fq 'TTS_SYNTHESIS_FR_FR = PASS' "$RUNTIME_VALIDATOR" || fail "French synthesis runtime gate missing"
 grep -Fq 'ACCESSIBILITY_RUNTIME = PASS' "$RUNTIME_VALIDATOR" || fail "runtime PASS marker missing"
