@@ -1,0 +1,125 @@
+name: AccessibleAndroid VMware rebuild
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - rebuild-vmware-from-zero-20260921
+    paths:
+      - '.github/trigger/vmware-rebuild.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessibleandroid-vmware-rebuild
+  cancel-in-progress: true
+
+jobs:
+  build-vmware:
+    name: Build Android 17 VMware bundle from zero
+    runs-on: [self-hosted, Linux, X64, android-build]
+    timeout-minutes: 720
+    env:
+      ANDROID_BUILD_JOBS: '2'
+      KERNEL_SYNC_JOBS: '4'
+      SYNC_JOBS: '4'
+    steps:
+      - name: Checkout VMware rebuild branch
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: rebuild-vmware-from-zero-20260921
+          fetch-depth: 0
+          clean: false
+
+      - name: Verify builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RUNNER=$RUNNER_NAME"
+          uname -a
+          nproc
+          free -h || true
+          df -h .
+          required=(repo git python3 java bash sha256sum qemu-img sgdisk losetup grub-install mkfs.vfat mkfs.ext4 grub-mkrescue xorriso)
+          for command_name in "${required[@]}"; do
+            command -v "$command_name" >/dev/null || {
+              echo "ERROR: missing host tool: $command_name" >&2
+              exit 1
+            }
+          done
+          if (( EUID != 0 )); then
+            sudo -n true
+          fi
+
+      - name: Validate repository contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/validate-accessibility-contract.sh
+          bash scripts/validate-vmware-driver-contract.sh
+
+      - name: Build VMware image from zero
+        shell: bash
+        env:
+          BOOTSTRAP_HOST: '0'
+          BOOTSTRAP_SDK: '1'
+          BUILD_KERNEL: '1'
+        run: bash scripts/build-vmware-from-zero.sh accessible-aosp
+
+      - name: Validate generated VMware bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=".work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware"
+          test -s "$bundle/AccessibleAndroid-17.vmx"
+          test -s "$bundle/AccessibleAndroid-17.vmdk"
+          test -s "$bundle/SHA256SUMS"
+          (
+            cd "$bundle"
+            sha256sum -c SHA256SUMS
+            qemu-img info AccessibleAndroid-17.vmdk
+            qemu-img check AccessibleAndroid-17.vmdk
+          )
+          grep -Fq 'scsi0.virtualDev = "pvscsi"' "$bundle/AccessibleAndroid-17.vmx"
+          grep -Fq 'ethernet0.virtualDev = "vmxnet3"' "$bundle/AccessibleAndroid-17.vmx"
+          grep -Fq 'sound.virtualDev = "hdaudio"' "$bundle/AccessibleAndroid-17.vmx"
+          echo "VMWARE_BUILD_ARTIFACT = PASS"
+
+      - name: Publish summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## AccessibleAndroid VMware rebuild'
+            echo
+            echo "Source: ${GITHUB_SHA}"
+            echo "Runner: ${RUNNER_NAME}"
+            echo
+            if [[ -f .work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware/SHA256SUMS ]]; then
+              echo '### VMware bundle hashes'
+              echo '```text'
+              cat .work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware/SHA256SUMS
+              echo '```'
+            fi
+            echo
+            echo 'Physical VMware runtime gate remains separate: boot the VMX and run scripts/verify-vmware-runtime-adb.sh.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload VMware evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-VMware-evidence-${{ github.run_id }}
+          path: |
+            .work/logs/**
+            .work/vm/preinstalled/DISK-MANIFEST.txt
+            .work/vm/preinstalled/GPT.txt
+            .work/vm/preinstalled/SHA256SUMS
+            .work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware/AccessibleAndroid-17.vmx
+            .work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware/README.txt
+            .work/vm/vmware/AccessibleAndroid-17-accessible_android_x86_64-VMware/SHA256SUMS
+            config/aosp-pinned-manifest.xml
+            config/kernel-pinned-manifest.xml
+          if-no-files-found: warn
+          retention-days: 30
