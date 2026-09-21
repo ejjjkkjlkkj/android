@@ -13,6 +13,8 @@ adb_cmd() {
 }
 
 adb_cmd wait-for-device
+# The command is intentionally expanded by the Android guest shell, not by the host.
+# shellcheck disable=SC2016
 adb_cmd shell 'until [ "$(getprop sys.boot_completed)" = "1" ]; do sleep 2; done'
 
 check() {
@@ -26,6 +28,7 @@ check() {
   fi
 }
 
+# shellcheck disable=SC2016
 check VMWARE_BOOT_COMPLETE 'test "$(getprop sys.boot_completed)" = "1"'
 check VMWARE_DRM_DEVICE 'test -e /dev/dri/card0'
 check VMWARE_AUDIO_DEVICE 'test -d /dev/snd && ls /dev/snd/* >/dev/null 2>&1'
@@ -34,6 +37,7 @@ check VMWARE_NETWORK_INTERFACE 'ip link | grep -Eq "^[0-9]+: (eth|en)[^:]*:"'
 check VMWARE_DATA_PERSISTENCE 'test -d /data'
 
 # Kernel driver evidence: built-ins appear in /sys even when lsmod is empty.
+# shellcheck disable=SC2016
 adb_cmd shell 'for d in vmwgfx vmxnet3 vmw_pvscsi vmw_vmci snd_hda_intel snd_ens1371 xhci_hcd; do
   if find /sys/bus -type l -path "*/drivers/$d" -print -quit 2>/dev/null | grep -q . || grep -qw "$d" /proc/modules 2>/dev/null; then
     echo "VMWARE_DRIVER_$d=PASS"
