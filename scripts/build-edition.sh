@@ -26,7 +26,7 @@ case "$EDITION" in
     export PRODUCT_NAME="$AOSP_PRODUCT"
     ;;
   "$GMS_EDITION")
-    "$ROOT_DIR/scripts/stage-gms-bundle.sh"
+    bash "$ROOT_DIR/scripts/stage-gms-bundle.sh"
     GMS_STAGED=1
     export ACCESSIBLE_ANDROID_EDITION="$GMS_EDITION"
     export PRODUCT_NAME="$GMS_PRODUCT"
@@ -42,4 +42,4 @@ echo "EDITION = $ACCESSIBLE_ANDROID_EDITION"
 echo "PRODUCT = $PRODUCT_NAME"
 echo "AOSP_DIR = $AOSP_DIR"
 
-"$ROOT_DIR/scripts/build-pc-iso.sh"
+bash "$ROOT_DIR/scripts/build-pc-iso.sh"
