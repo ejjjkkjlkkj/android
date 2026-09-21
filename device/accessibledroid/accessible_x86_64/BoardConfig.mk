@@ -46,7 +46,19 @@ KERNEL_MODULES := $(wildcard $(KERNEL_MODULE_DIR)/*.ko)
 
 # Keep first-stage init small: only modules which can be required to discover
 # the virtio system disk and provide entropy are copied to vendor_boot.
+# Keep common PC/VMware storage drivers in first stage when the Android GKI
+# dist exposes them as modules. Missing names are harmless because wildcard()
+# only includes modules actually produced by the selected kernel.
 ACCESSIBLE_FIRST_STAGE_MODULE_NAMES := \
+    scsi_mod.ko \
+    sd_mod.ko \
+    libata.ko \
+    libahci.ko \
+    ahci.ko \
+    ata_piix.ko \
+    vmw_pvscsi.ko \
+    nvme-core.ko \
+    nvme.ko \
     virtio_pci_modern_dev.ko \
     virtio_pci.ko \
     virtio_blk.ko \
