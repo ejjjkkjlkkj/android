@@ -11,10 +11,45 @@ permissions:
 
 jobs:
   vmware:
+    name: Prove Android partitions and framework boot in VMware Workstation
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
+    env:
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      GH_TOKEN: ${{ github.token }}
+
     steps:
-      - name: Confirm upstream run
+      - name: Checkout validation scripts
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          clean: true
+
+      - name: Verify VMware and GitHub CLI
         shell: pwsh
         run: |
-          Write-Host "SOURCE_RUN_ID=${{ github.event.workflow_run.id }}"
+          $ErrorActionPreference = 'Stop'
+          gh --version
+          if ($LASTEXITCODE -ne 0) { throw 'gh CLI unavailable' }
+          $vmrun = Get-Command vmrun.exe -ErrorAction SilentlyContinue
+          if (-not $vmrun) {
+            $paths = @(
+              "$env:ProgramFiles\VMware\VMware Workstation\vmrun.exe",
+              "${env:ProgramFiles(x86)}\VMware\VMware Workstation\vmrun.exe"
+            )
+            $vmrun = $paths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          }
+          if (-not $vmrun) { throw 'VMware Workstation vmrun.exe not found' }
+          Write-Host "VMRUN=$vmrun"
+          Write-Host "SOURCE_RUN_ID=$env:SOURCE_RUN_ID"
+
+      - name: Download VMDK from Linux build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .work\vmware-input | Out-Null
+          $artifact = "AccessibleAndroid-17-VMware-$env:SOURCE_RUN_ID"
+          gh run download $env:SOURCE_RUN_ID --repo "$env:GITHUB_REPOSITORY" --name $artifact --dir .work\vmware-input
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download artifact $artifact" }
+          Get-ChildItem .work\vmware-input -Recurse | Select-Object FullName, Length
