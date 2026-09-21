@@ -36,28 +36,28 @@ echo "VM_ARTIFACT_DIR = $VM_ARTIFACT_DIR"
 echo "EDITION = $EDITION"
 
 if [[ "$BOOTSTRAP_HOST" == "1" ]]; then
-  "$ROOT_DIR/scripts/bootstrap-host.sh"
+  bash "$ROOT_DIR/scripts/bootstrap-host.sh"
 fi
 
 if [[ "$BOOTSTRAP_SDK" == "1" ]]; then
-  "$ROOT_DIR/scripts/bootstrap-android-sdk.sh"
+  bash "$ROOT_DIR/scripts/bootstrap-android-sdk.sh"
 fi
 
-"$ROOT_DIR/scripts/sync-aosp.sh"
-"$ROOT_DIR/scripts/sync-pc-upstreams.sh"
-"$ROOT_DIR/scripts/sync-accessibility-upstreams.sh"
-"$ROOT_DIR/scripts/install-device-tree.sh"
+bash "$ROOT_DIR/scripts/sync-aosp.sh"
+bash "$ROOT_DIR/scripts/sync-pc-upstreams.sh"
+bash "$ROOT_DIR/scripts/sync-accessibility-upstreams.sh"
+bash "$ROOT_DIR/scripts/install-device-tree.sh"
 
 if [[ "$BUILD_KERNEL" == "1" ]]; then
-  "$ROOT_DIR/scripts/sync-kernel.sh"
-  "$ROOT_DIR/scripts/apply-vmware-kernel-profile.sh"
-  "$ROOT_DIR/scripts/validate-vmware-driver-contract.sh"
-  "$ROOT_DIR/scripts/build-kernel.sh"
+  bash "$ROOT_DIR/scripts/sync-kernel.sh"
+  bash "$ROOT_DIR/scripts/apply-vmware-kernel-profile.sh"
+  bash "$ROOT_DIR/scripts/validate-vmware-driver-contract.sh"
+  bash "$ROOT_DIR/scripts/build-kernel.sh"
 fi
-"$ROOT_DIR/scripts/stage-kernel.sh"
+bash "$ROOT_DIR/scripts/stage-kernel.sh"
 
-"$ROOT_DIR/scripts/build-accessibility-apps.sh"
-"$ROOT_DIR/scripts/build-edition.sh" "$EDITION"
+bash "$ROOT_DIR/scripts/build-accessibility-apps.sh"
+bash "$ROOT_DIR/scripts/build-edition.sh" "$EDITION"
 
 echo "BUILD_FROM_ZERO = PASS"
 echo "EDITION = $EDITION"
