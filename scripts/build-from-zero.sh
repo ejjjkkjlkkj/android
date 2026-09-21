@@ -50,6 +50,8 @@ fi
 
 if [[ "$BUILD_KERNEL" == "1" ]]; then
   "$ROOT_DIR/scripts/sync-kernel.sh"
+  "$ROOT_DIR/scripts/apply-vmware-kernel-profile.sh"
+  "$ROOT_DIR/scripts/validate-vmware-driver-contract.sh"
   "$ROOT_DIR/scripts/build-kernel.sh"
 fi
 "$ROOT_DIR/scripts/stage-kernel.sh"
