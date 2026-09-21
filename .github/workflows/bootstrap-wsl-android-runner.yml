@@ -1,0 +1,90 @@
+name: Bootstrap AccessibleAndroid WSL runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/trigger/accessibleandroid-resume.txt'
+      - '.github/trigger/bootstrap-wsl-android-runner.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessibleandroid-wsl-runner-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    name: Start Debian WSL Android build runner
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Start configured WSL runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $distro = 'Debian'
+          $user = 'admws12'
+
+          Write-Host "WINDOWS_RUNNER=$env:RUNNER_NAME"
+          Write-Host "WINDOWS_ARCH=$env:RUNNER_ARCH"
+          wsl.exe --status
+          if ($LASTEXITCODE -ne 0) { throw "WSL status failed: $LASTEXITCODE" }
+
+          $script = @'
+          set -euo pipefail
+          RUNNER_DIR="$HOME/actions-runner-android"
+          RUNNER_LOG="$HOME/github-android-runner.log"
+
+          echo "WSL_USER=$(id -un)"
+          echo "WSL_HOME=$HOME"
+          uname -a
+
+          [[ -d "$RUNNER_DIR" ]] || { echo "ERROR: missing $RUNNER_DIR" >&2; exit 2; }
+          [[ -x "$RUNNER_DIR/run.sh" ]] || { echo "ERROR: missing executable $RUNNER_DIR/run.sh" >&2; exit 2; }
+          [[ -f "$RUNNER_DIR/.runner" ]] || { echo "ERROR: runner is not configured (.runner missing)" >&2; exit 2; }
+
+          cd "$RUNNER_DIR"
+
+          if pgrep -af '[R]unner\.Listener|[r]unsvc\.sh' >/dev/null; then
+            echo 'ANDROID_WSL_RUNNER = ALREADY_RUNNING'
+            pgrep -af '[R]unner\.Listener|[r]unsvc\.sh' || true
+            exit 0
+          fi
+
+          echo 'Starting GitHub Actions runner in WSL...'
+          nohup ./run.sh >>"$RUNNER_LOG" 2>&1 </dev/null &
+          echo "$!" > "$HOME/github-android-runner.pid"
+
+          for _ in $(seq 1 30); do
+            if pgrep -af '[R]unner\.Listener' >/dev/null; then
+              echo 'ANDROID_WSL_RUNNER = STARTED'
+              pgrep -af '[R]unner\.Listener' || true
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo 'RUNNER_LOG_TAIL_BEGIN' >&2
+          tail -n 160 "$RUNNER_LOG" >&2 2>/dev/null || true
+          echo 'RUNNER_LOG_TAIL_END' >&2
+          echo 'ERROR: WSL Runner.Listener did not stay alive' >&2
+          exit 3
+          '@
+
+          $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+          wsl.exe -d $distro -u $user -- bash -lc "echo '$payload' | base64 -d | bash"
+          if ($LASTEXITCODE -ne 0) { throw "WSL runner bootstrap failed: $LASTEXITCODE" }
+
+      - name: Verify listener after bootstrap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Sleep -Seconds 5
+          wsl.exe -d Debian -u admws12 -- bash -lc "pgrep -af '[R]unner\.Listener|[r]unsvc\.sh'"
+          if ($LASTEXITCODE -ne 0) { throw "Android WSL runner listener not detected" }
+          Write-Host 'ANDROID_WSL_RUNNER_LISTENER = PASS'
