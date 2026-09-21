@@ -28,7 +28,7 @@ done
   echo "ERROR: kernel not found at $KERNEL" >&2
   exit 3
 }
-[[ -s "$SMOKE_INITRAMFS" ]] || "$ROOT_DIR/scripts/build-kernel-smoke-initramfs.sh"
+[[ -s "$SMOKE_INITRAMFS" ]] || bash "$ROOT_DIR/scripts/build-kernel-smoke-initramfs.sh"
 
 ANDROID_IMAGES=(boot.img init_boot.img vendor_boot.img vbmeta.img super.img userdata.img)
 for image in "${ANDROID_IMAGES[@]}"; do
@@ -41,7 +41,7 @@ done
 
 # Prepare the real Android first-stage initramfs by following the Android GKI
 # bootloader contract: vendor ramdisk fragment(s), then generic init_boot ramdisk.
-"$ROOT_DIR/scripts/prepare-android-grub-boot.sh"
+bash "$ROOT_DIR/scripts/prepare-android-grub-boot.sh"
 [[ -s "$DIRECT_BOOT_DIR/kernel" && -s "$DIRECT_BOOT_DIR/android-initrd.img" ]] || {
   echo "ERROR: direct Android GRUB assets were not produced" >&2
   exit 5
