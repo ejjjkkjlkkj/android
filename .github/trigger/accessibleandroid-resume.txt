@@ -1,6 +1,6 @@
 Trigger the self-hosted AccessibleAndroid recovery/resume workflow.
-Requested: 2026-09-21 final hardened run
+Requested: 2026-09-21 final end-to-end run
 Target: main
 Bootstrap: Windows self-hosted runner starts Debian WSL runner admws12 automatically.
-Source baseline: ae422549ad51233604097c2959664b3e07bfecdf
-Purpose: finish AccessibleAndroid 17 end-to-end from latest main with conservative AOSP -j2, generate and BIOS+UEFI smoke-test the installer ISO, build normal and isolated accessibility self-test disks, prove sys.boot_completed, bound TalkBack, offline eSpeak EN-US/FR-FR synthesis, real guest WAV audio, keyboard focus navigation, QEMU BIOS+UEFI boot, export QCOW2/VMDK/VDI, hashes and evidence, and publish the final ISO artifact. Preserve the normal user disk on the non-self-test GRUB entry.
+Source baseline: ab1787bbc1bf143b450383c61a08cbd6be841cfd
+Purpose: finish AccessibleAndroid 17 end-to-end from latest main. Use conservative AOSP -j2; generate and BIOS+UEFI smoke-test the installer ISO; build normal and isolated accessibility self-test disks; prove Android post-fs-data and sys.boot_completed; prove bound TalkBack, offline eSpeak EN-US/FR-FR synthesis, real guest WAV audio and keyboard focus navigation in QEMU; export QCOW2/VMDK/VDI; publish hashes and the ISO; then run the Windows VMware Workstation final gate against the VMDK and require Android partition discovery plus framework boot. Preserve the normal user disk on the non-self-test GRUB entry.
