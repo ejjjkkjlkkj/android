@@ -52,6 +52,24 @@ jobs:
       - name: Validate accessibility package and runtime contract
         run: bash scripts/validate-accessibility-contract.sh
 
+      - name: Validate VMware driver contract
+        run: bash scripts/validate-vmware-driver-contract.sh
+
+      - name: Validate VMware packaging contract
+        run: |
+          set -euo pipefail
+          source config/vmware.env
+          test "$VMWARE_DISK_CONTROLLER" = "pvscsi"
+          test "$VMWARE_NETWORK_ADAPTER" = "vmxnet3"
+          test "$VMWARE_GRAPHICS_ADAPTER" = "vmwgfx"
+          test "$VMWARE_AUDIO_PRIMARY" = "hdaudio"
+          grep -Fq 'scsi0.virtualDev = "$VMWARE_DISK_CONTROLLER"' scripts/package-vmware-bundle.sh
+          grep -Fq 'ethernet0.virtualDev = "$VMWARE_NETWORK_ADAPTER"' scripts/package-vmware-bundle.sh
+          grep -Fq 'sound.virtualDev = "$VMWARE_AUDIO_PRIMARY"' scripts/package-vmware-bundle.sh
+          grep -Fq 'usb_xhci.present = "TRUE"' scripts/package-vmware-bundle.sh
+          grep -Fq 'verify-vmware-runtime-adb.sh' docs/VMWARE.md
+          echo 'VMWARE_PACKAGING_CONTRACT = PASS'
+
       - name: Validate Android 17 lunch configuration
         run: |
           set -euo pipefail
@@ -70,8 +88,12 @@ jobs:
           source config/kernel.env
           test "$KERNEL_FAMILY" = "android17-6.18"
           test "$KERNEL_ARCH" = "x86_64"
-          test "$KERNEL_BUILD_TARGET" = "//common-modules/virtual-device:virtual_device_x86_64"
-          test "$KERNEL_DIST_TARGET" = "//common-modules/virtual-device:virtual_device_x86_64_dist"
+          test "$KERNEL_BUILD_TARGET" = "//common-modules/virtual-device:server_x86_64"
+          test "$KERNEL_DIST_TARGET" = "//common-modules/virtual-device:server_x86_64_dist"
+          grep -Fq 'apply-vmware-kernel-profile.sh' scripts/build-from-zero.sh
+          grep -Fq 'CONFIG_SCSI_VMW_PVSCSI=y' kernel/vmware_x86_64.fragment
+          grep -Fq 'CONFIG_DRM_VMWGFX=y' kernel/vmware_x86_64.fragment
+          grep -Fq 'CONFIG_VMXNET3=y' kernel/vmware_x86_64.fragment
           test "$KERNEL_IMAGE_NAME" = "bzImage"
           test -n "$KERNEL_REQUIRED_VM_MODULES"
           grep -Fq 'TARGET_NO_KERNEL := false' device/accessibledroid/accessible_x86_64/BoardConfig.mk
@@ -177,7 +199,7 @@ jobs:
           fi
           echo 'ANDROID_NATIVE_IMAGE_PIPELINE = PASS'
 
-      - name: Validate deterministic preinstalled disk geometry and QEMU contract
+      - name: Validate portable preinstalled disk geometry and QEMU compatibility
         run: |
           set -euo pipefail
           source config/vm.env
@@ -186,8 +208,12 @@ jobs:
           test "$VM_USERDATA_SIZE_MIB" = "8192"
           test "$VM_BIOS_GRUB_SIZE_MIB" -ge 1
           test "$VM_OS_DISK_PCI_ADDR" = "0x6"
-          test "$ANDROID_BOOT_DEVICES" = "pci0000:00/0000:00:06.0"
-          grep -Fq 'androidboot.boot_devices=pci0000:00/0000:00:06.0' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          if grep -Fq 'androidboot.boot_devices=' device/accessibledroid/accessible_x86_64/BoardConfig.mk; then
+            echo 'ERROR: board config must not pin boot to one hypervisor PCI path.' >&2
+            exit 1
+          fi
+          grep -Fq 'Partition unique GUID' scripts/build-preinstalled-disk.sh
+          grep -Fq 'androidboot.boot_part_uuid=$BOOT_PART_UUID' scripts/build-preinstalled-disk.sh
           grep -Fq 'virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'ACCESSIBLE_ANDROID_POST_FS_DATA=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq 'ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
