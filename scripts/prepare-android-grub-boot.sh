@@ -7,9 +7,6 @@ export PROJECT_ROOT="$ROOT_DIR"
 source "$ROOT_DIR/config/workspace.env"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/config/upstream.env"
-# shellcheck disable=SC1091
-source "$ROOT_DIR/config/vm.env"
-
 PRODUCT="${PRODUCT_NAME:-accessible_android_x86_64}"
 PRODUCT_OUT="${OUT_DIR:-$AOSP_DIR/out/target/product/$PRODUCT}"
 WORK_DIR="$ROOT_DIR/.work/tmp/android-grub-boot"
@@ -171,7 +168,7 @@ fi
 # overrides are appended last so the deterministic x86_64 PC contract wins if
 # an inherited virtual-device default specifies a conflicting value.
 cat > "$GRUB_OUT/kernel-cmdline.txt" <<EOF
-${BOOT_IMAGE_CMDLINE} ${VENDOR_IMAGE_CMDLINE} init=/init security=selinux cma=0 firmware_class.path=/vendor/etc/ console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
+${BOOT_IMAGE_CMDLINE} ${VENDOR_IMAGE_CMDLINE} init=/init security=selinux cma=0 firmware_class.path=/vendor/etc/ console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
 EOF
 
 {
@@ -179,7 +176,7 @@ EOF
   echo "ramdisk_format=$generic_format"
   echo "vendor_ramdisk_fragments=${#vendor_ramdisks[@]}"
   printf 'vendor_ramdisk=%s\n' "${vendor_ramdisks[@]##*/}"
-  echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
+  echo "boot_device_binding=deferred-to-disk-packager"
   echo "bootconfig_attached=$bootconfig_enabled"
   echo "aosp_boot_cmdline_present=$([[ -n "$BOOT_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
   echo "aosp_vendor_cmdline_present=$([[ -n "$VENDOR_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
@@ -205,4 +202,4 @@ echo "INITRD = $GRUB_OUT/android-initrd.img"
 echo "RAMDISK_FORMAT = $generic_format"
 echo "VENDOR_RAMDISK_FRAGMENTS = ${#vendor_ramdisks[@]}"
 echo "BOOTCONFIG_ATTACHED = $bootconfig_enabled"
-echo "ANDROID_BOOT_DEVICES = $ANDROID_BOOT_DEVICES"
+echo "BOOT_DEVICE_BINDING = deferred-to-disk-packager"
