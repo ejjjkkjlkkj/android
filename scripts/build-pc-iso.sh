@@ -13,12 +13,12 @@ export PRODUCT_NAME="$PRODUCT"
 
 # Build only Android-native images and the canonical target-files package.
 # Android-x86/AAropa's iso_img target is intentionally not part of this project.
-"$ROOT_DIR/scripts/build-android-images.sh"
+bash "$ROOT_DIR/scripts/build-android-images.sh"
 
 # Package the current non-destructive BIOS/UEFI installer-preview medium from
 # those images. The upcoming installer engine will consume this exact payload
 # format, so ISO transport and disk installation cannot drift apart.
-"$ROOT_DIR/scripts/package-android-payload-iso.sh"
+bash "$ROOT_DIR/scripts/package-android-payload-iso.sh"
 
 PRODUCT_OUT="${OUT_DIR:-$AOSP_DIR/out/target/product/$PRODUCT}"
 find "$PRODUCT_OUT" -maxdepth 2 -type f -name '*.img' -print | sort
