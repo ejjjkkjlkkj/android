@@ -89,7 +89,7 @@ for image in "${ANDROID_IMAGES[@]}"; do
   }
 done
 
-"$ROOT_DIR/scripts/prepare-android-grub-boot.sh"
+bash "$ROOT_DIR/scripts/prepare-android-grub-boot.sh"
 GRUB_ASSETS="$VM_ARTIFACT_DIR/android-grub"
 [[ -s "$GRUB_ASSETS/kernel" && -s "$GRUB_ASSETS/android-initrd.img" && -s "$GRUB_ASSETS/kernel-cmdline.txt" ]] || {
   echo "ERROR: direct Android boot assets are incomplete" >&2
