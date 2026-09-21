@@ -171,7 +171,7 @@ fi
 # overrides are appended last so the deterministic x86_64 PC contract wins if
 # an inherited virtual-device default specifies a conflicting value.
 cat > "$GRUB_OUT/kernel-cmdline.txt" <<EOF
-${BOOT_IMAGE_CMDLINE} ${VENDOR_IMAGE_CMDLINE} init=/init security=selinux cma=0 firmware_class.path=/vendor/etc/ console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
+${BOOT_IMAGE_CMDLINE} ${VENDOR_IMAGE_CMDLINE} init=/init security=selinux cma=0 firmware_class.path=/vendor/etc/ console=tty0 console=ttyS0,115200n8 panic=-1 printk.devkmsg=on 8250.nr_uarts=1 loop.max_part=7 androidboot.hardware=accessible_x86_64 androidboot.boot_devices=$ANDROID_BOOT_DEVICES androidboot.boot_part_uuid=$ANDROID_BOOT_PART_UUID androidboot.slot_suffix=_a androidboot.force_normal_boot=1 androidboot.verifiedbootstate=orange androidboot.vbmeta.device_state=unlocked${BOOTCONFIG_CMDLINE}
 EOF
 
 {
@@ -180,6 +180,7 @@ EOF
   echo "vendor_ramdisk_fragments=${#vendor_ramdisks[@]}"
   printf 'vendor_ramdisk=%s\n' "${vendor_ramdisks[@]##*/}"
   echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
+  echo "android_boot_part_uuid=$ANDROID_BOOT_PART_UUID"
   echo "bootconfig_attached=$bootconfig_enabled"
   echo "aosp_boot_cmdline_present=$([[ -n "$BOOT_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
   echo "aosp_vendor_cmdline_present=$([[ -n "$VENDOR_IMAGE_CMDLINE" ]] && echo 1 || echo 0)"
