@@ -72,3 +72,17 @@ jobs:
           Write-Host "VMWARE_VMDK_SHA256=$hash"
           Write-Host "VMWARE_VMDK_HASH = PASS"
           "VMWARE_VMDK=$($vmdk.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Boot AccessibleAndroid in VMware and prove partition discovery
+        shell: pwsh
+        run: |
+          .\scripts\test-vmware-windows.ps1 -Vmdk "$env:VMWARE_VMDK" -TimeoutSeconds 420
+
+      - name: Upload VMware evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-VMware-Evidence-${{ github.run_id }}
+          path: .work/logs/vmware/**
+          if-no-files-found: warn
+          retention-days: 30
