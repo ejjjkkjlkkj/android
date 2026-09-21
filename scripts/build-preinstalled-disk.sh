@@ -385,6 +385,7 @@ fi
   echo "android_api=37"
   echo "disk_size_gib=$VM_DISK_SIZE_GIB"
   echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
+  echo "android_boot_part_uuid=$ANDROID_BOOT_PART_UUID"
   echo "os_disk_pci_addr=$VM_OS_DISK_PCI_ADDR"
   echo "bios_grub=installed"
   echo "uefi_grub=installed"
@@ -424,4 +425,5 @@ fi
 echo "BIOS_GRUB = PASS"
 echo "UEFI_GRUB = PASS"
 echo "ANDROID_BOOT_DEVICES = $ANDROID_BOOT_DEVICES"
+echo "ANDROID_BOOT_PART_UUID = $ANDROID_BOOT_PART_UUID"
 cat "$DISK_DIR/SHA256SUMS"
