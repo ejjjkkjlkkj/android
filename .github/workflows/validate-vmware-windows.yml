@@ -53,3 +53,22 @@ jobs:
           gh run download $env:SOURCE_RUN_ID --repo "$env:GITHUB_REPOSITORY" --name $artifact --dir .work\vmware-input
           if ($LASTEXITCODE -ne 0) { throw "Failed to download artifact $artifact" }
           Get-ChildItem .work\vmware-input -Recurse | Select-Object FullName, Length
+
+      - name: Verify downloaded VMDK hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vmdk = Get-ChildItem .work\vmware-input -Recurse -Filter *.vmdk | Select-Object -First 1
+          if (-not $vmdk) { throw 'No VMDK found in downloaded artifact' }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $vmdk.FullName).Hash.ToLowerInvariant()
+          $sumFile = Get-ChildItem .work\vmware-input -Recurse -Filter SHA256SUMS | Select-Object -First 1
+          if (-not $sumFile) { throw 'SHA256SUMS not found in VMware artifact' }
+          $vmdkName = $vmdk.Name
+          $line = Get-Content -LiteralPath $sumFile.FullName | Where-Object { $_ -match ([regex]::Escape($vmdkName) + '$') } | Select-Object -First 1
+          if (-not $line) { throw "No SHA256SUMS entry for $vmdkName" }
+          $expected = (($line -split '\s+')[0]).ToLowerInvariant()
+          if ($hash -ne $expected) { throw "VMDK SHA256 mismatch: expected=$expected actual=$hash" }
+          Write-Host "VMWARE_VMDK=$($vmdk.FullName)"
+          Write-Host "VMWARE_VMDK_SHA256=$hash"
+          Write-Host "VMWARE_VMDK_HASH = PASS"
+          "VMWARE_VMDK=$($vmdk.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
