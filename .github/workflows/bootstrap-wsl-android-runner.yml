@@ -35,48 +35,42 @@ jobs:
           wsl.exe --status
           if ($LASTEXITCODE -ne 0) { throw "WSL status failed: $LASTEXITCODE" }
 
-          $script = @'
-          set -euo pipefail
-          RUNNER_DIR="$HOME/actions-runner-android"
-          RUNNER_LOG="$HOME/github-android-runner.log"
-
-          echo "WSL_USER=$(id -un)"
-          echo "WSL_HOME=$HOME"
-          uname -a
-
-          [[ -d "$RUNNER_DIR" ]] || { echo "ERROR: missing $RUNNER_DIR" >&2; exit 2; }
-          [[ -x "$RUNNER_DIR/run.sh" ]] || { echo "ERROR: missing executable $RUNNER_DIR/run.sh" >&2; exit 2; }
-          [[ -f "$RUNNER_DIR/.runner" ]] || { echo "ERROR: runner is not configured (.runner missing)" >&2; exit 2; }
-
-          cd "$RUNNER_DIR"
-
-          if pgrep -af '[R]unner\.Listener|[r]unsvc\.sh' >/dev/null; then
-            echo 'ANDROID_WSL_RUNNER = ALREADY_RUNNING'
-            pgrep -af '[R]unner\.Listener|[r]unsvc\.sh' || true
-            exit 0
-          fi
-
-          echo 'Starting GitHub Actions runner in WSL...'
-          nohup ./run.sh >>"$RUNNER_LOG" 2>&1 </dev/null &
-          echo "$!" > "$HOME/github-android-runner.pid"
-
-          for _ in $(seq 1 30); do
-            if pgrep -af '[R]unner\.Listener' >/dev/null; then
-              echo 'ANDROID_WSL_RUNNER = STARTED'
-              pgrep -af '[R]unner\.Listener' || true
-              exit 0
-            fi
-            sleep 1
-          done
-
-          echo 'RUNNER_LOG_TAIL_BEGIN' >&2
-          tail -n 160 "$RUNNER_LOG" >&2 2>/dev/null || true
-          echo 'RUNNER_LOG_TAIL_END' >&2
-          echo 'ERROR: WSL Runner.Listener did not stay alive' >&2
-          exit 3
-          '@
-
+          $scriptLines = @(
+            'set -euo pipefail'
+            'RUNNER_DIR="$HOME/actions-runner-android"'
+            'RUNNER_LOG="$HOME/github-android-runner.log"'
+            'echo "WSL_USER=$(id -un)"'
+            'echo "WSL_HOME=$HOME"'
+            'uname -a'
+            '[[ -d "$RUNNER_DIR" ]] || { echo "ERROR: missing $RUNNER_DIR" >&2; exit 2; }'
+            '[[ -x "$RUNNER_DIR/run.sh" ]] || { echo "ERROR: missing executable $RUNNER_DIR/run.sh" >&2; exit 2; }'
+            '[[ -f "$RUNNER_DIR/.runner" ]] || { echo "ERROR: runner is not configured (.runner missing)" >&2; exit 2; }'
+            'cd "$RUNNER_DIR"'
+            'if pgrep -af "[R]unner\.Listener|[r]unsvc\.sh" >/dev/null; then'
+            '  echo "ANDROID_WSL_RUNNER = ALREADY_RUNNING"'
+            '  pgrep -af "[R]unner\.Listener|[r]unsvc\.sh" || true'
+            '  exit 0'
+            'fi'
+            'echo "Starting GitHub Actions runner in WSL..."'
+            'nohup ./run.sh >>"$RUNNER_LOG" 2>&1 </dev/null &'
+            'echo "$!" > "$HOME/github-android-runner.pid"'
+            'for _ in $(seq 1 30); do'
+            '  if pgrep -af "[R]unner\.Listener" >/dev/null; then'
+            '    echo "ANDROID_WSL_RUNNER = STARTED"'
+            '    pgrep -af "[R]unner\.Listener" || true'
+            '    exit 0'
+            '  fi'
+            '  sleep 1'
+            'done'
+            'echo "RUNNER_LOG_TAIL_BEGIN" >&2'
+            'tail -n 160 "$RUNNER_LOG" >&2 2>/dev/null || true'
+            'echo "RUNNER_LOG_TAIL_END" >&2'
+            'echo "ERROR: WSL Runner.Listener did not stay alive" >&2'
+            'exit 3'
+          )
+          $script = $scriptLines -join "`n"
           $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+
           wsl.exe -d $distro -u $user -- bash -lc "echo '$payload' | base64 -d | bash"
           if ($LASTEXITCODE -ne 0) { throw "WSL runner bootstrap failed: $LASTEXITCODE" }
 
