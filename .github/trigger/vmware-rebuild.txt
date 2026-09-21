@@ -2,3 +2,6 @@ trigger=vmware-rebuild
 source_branch=rebuild-vmware-from-zero-20260921
 goal=android17-x86_64-vmware
 requested_utc=2026-09-21T09:00:00Z
+trigger_revision=2
+fix_head=2c6de2f5ad4a7777ef2dde755d0ade75a76ed130
+reason=android-first-stage-and-workstation-vmdk
