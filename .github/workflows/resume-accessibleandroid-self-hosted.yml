@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 720
     env:
       TARGET_REF: 'main'
-      ANDROID_BUILD_JOBS: '4'
+      ANDROID_BUILD_JOBS: '2'
       KERNEL_SYNC_JOBS: '4'
       SYNC_JOBS: '4'
       BOOT_TIMEOUT_SECONDS: '360'
@@ -134,7 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4)
+          required=(repo git python3 java bash sha256sum qemu-img qemu-system-x86_64 sgdisk losetup grub-install mkfs.vfat mkfs.ext4 grub-mkrescue xorriso split)
           missing=0
           for command_name in "${required[@]}"; do
             if command -v "$command_name" >/dev/null 2>&1; then
@@ -169,16 +169,41 @@ jobs:
           BUILD_KERNEL: '1'
         run: bash scripts/build-from-zero.sh accessible-aosp
 
+      - name: Verify generated installer ISO in BIOS and UEFI
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=".work/vm/AccessibleAndroid-17-accessible_android_x86_64-installer-preview.iso"
+          test -s "$iso"
+          test -s "$iso.sha256"
+          sha256sum -c "$iso.sha256"
+          SMOKE_ISO="$iso" TEST_MODE=all QEMU_ACCEL=tcg BOOT_TIMEOUT_SECONDS=90 \
+            bash scripts/test-kernel-smoke-qemu.sh
+          echo "FINAL_ISO=$iso" >> "$GITHUB_ENV"
+          echo "INSTALLER_ISO_BIOS_UEFI = PASS"
+
       - name: Build preinstalled BIOS and UEFI disk plus isolated self-test copy
         shell: bash
         env:
-          EXPORT_ALL_FORMATS: '0'
+          EXPORT_ALL_FORMATS: '1'
           BUILD_SELFTEST_DISK: '1'
         run: bash scripts/build-preinstalled-disk.sh
 
       - name: Validate BIOS and UEFI boot with full accessibility runtime self-test
         shell: bash
         run: TEST_MODE=all HARDWARE_PROFILE=full RUNTIME_SELFTEST=1 bash scripts/test-preinstalled-disk-qemu.sh
+
+      - name: Verify distributable VM disk formats
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=".work/vm/preinstalled/AccessibleAndroid-17-accessible_android_x86_64-x86_64"
+          for image in "$base.qcow2" "$base.vmdk" "$base.vdi"; do
+            test -s "$image"
+            qemu-img info "$image"
+          done
+          qemu-img check "$base.qcow2"
+          echo "QCOW2_VMDK_VDI = PASS"
 
       - name: Record recovery and build provenance
         if: always()
@@ -238,7 +263,21 @@ jobs:
             .work/vm/preinstalled/GPT.txt
             .work/vm/preinstalled/SHA256SUMS
             .work/vm/*.iso.sha256
+            .work/vm/preinstalled/*.vmdk
+            .work/vm/preinstalled/*.vdi
             config/aosp-pinned-manifest.xml
             config/kernel-pinned-manifest.xml
           if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload final AccessibleAndroid ISO
+        if: success()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-ISO-${{ github.run_id }}
+          path: |
+            .work/vm/AccessibleAndroid-17-accessible_android_x86_64-installer-preview.iso
+            .work/vm/AccessibleAndroid-17-accessible_android_x86_64-installer-preview.iso.sha256
+          compression-level: 0
+          if-no-files-found: error
           retention-days: 30
