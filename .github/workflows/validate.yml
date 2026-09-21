@@ -220,6 +220,10 @@ jobs:
             exit 1
           fi
           grep -Fq 'FULL_HARDWARE_BOOT = PASS' scripts/test-preinstalled-disk-qemu.sh
+          grep -Fq 'ahci.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'ata_piix.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'vmw_pvscsi.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'nvme.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio-gpu.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio_input.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio_snd.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
