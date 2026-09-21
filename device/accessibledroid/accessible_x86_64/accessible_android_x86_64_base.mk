@@ -22,7 +22,7 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/userspace_reboot.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
-# First-stage mount contract for the virtio installation disk. GKI first-stage
+# First-stage mount contract for the PC/VM installation disk. GKI first-stage
 # init reads the device fstab from vendor_boot; keep a second copy in /vendor for
 # diagnostics and recovery tooling after the real vendor partition is mounted.
 PRODUCT_COPY_FILES += \
@@ -40,5 +40,5 @@ PRODUCT_MANUFACTURER := Accessible Android Project
 PRODUCT_CHARACTERISTICS := nosdcard
 
 PRODUCT_VENDOR_PROPERTIES += \
-    ro.vendor.accessibledroid.vm_reference=qemu \
+    ro.vendor.accessibledroid.vm_reference=vmware \
     ro.vendor.accessibledroid.accessibility_first=true
