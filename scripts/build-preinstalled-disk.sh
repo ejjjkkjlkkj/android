@@ -377,7 +377,7 @@ fi
 
 if [[ "$EXPORT_ALL_FORMATS" == "1" ]]; then
   qemu-img convert -p -f raw -O vdi "$RAW_DISK" "$VDI_DISK"
-  qemu-img convert -p -f raw -O vmdk -o subformat=streamOptimized "$RAW_DISK" "$VMDK_DISK"
+  qemu-img convert -p -f raw -O vmdk -o subformat=monolithicSparse,adapter_type=lsilogic "$RAW_DISK" "$VMDK_DISK"
 fi
 
 {
@@ -421,6 +421,7 @@ fi
 if [[ "$EXPORT_ALL_FORMATS" == "1" ]]; then
   echo "VDI = $VDI_DISK"
   echo "VMDK = $VMDK_DISK"
+  echo "WORKSTATION_VMDK = monolithicSparse"
 fi
 echo "BIOS_GRUB = PASS"
 echo "UEFI_GRUB = PASS"
