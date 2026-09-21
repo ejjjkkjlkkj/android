@@ -1,0 +1,62 @@
+# AccessibleAndroid Android 17 / Linux 6.18 VMware x86_64 profile.
+# Boot-critical devices are built into vmlinux so Android first-stage init does
+# not depend on a vendor ramdisk module ordering accident.
+
+# Hypervisor / guest transport.
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_VMWARE_VMCI=y
+CONFIG_VSOCKETS=y
+CONFIG_VMWARE_VMCI_VSOCKETS=y
+
+# Storage: VMware PVSCSI first, with SATA/AHCI/NVMe compatibility fallbacks.
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_SCSI_VMW_PVSCSI=y
+CONFIG_ATA=y
+CONFIG_SATA_AHCI=y
+CONFIG_ATA_PIIX=y
+CONFIG_NVME_CORE=y
+CONFIG_BLK_DEV_NVME=y
+
+# Network: native VMware adapter plus common emulated fallbacks.
+CONFIG_NETDEVICES=y
+CONFIG_ETHERNET=y
+CONFIG_VMXNET3=y
+CONFIG_E1000=y
+CONFIG_E1000E=y
+
+# VMware SVGA / DRM KMS path.
+CONFIG_DRM=y
+CONFIG_DRM_KMS_HELPER=y
+CONFIG_DRM_VMWGFX=y
+
+# Keyboard, mouse and USB. These are boot/accessibility-critical.
+CONFIG_INPUT=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_KEYBOARD=y
+CONFIG_INPUT_MOUSE=y
+CONFIG_SERIO=y
+CONFIG_SERIO_I8042=y
+CONFIG_KEYBOARD_ATKBD=y
+CONFIG_MOUSE_PS2=y
+CONFIG_HID=y
+CONFIG_HID_GENERIC=y
+CONFIG_USB=y
+CONFIG_USB_XHCI_HCD=y
+CONFIG_USB_EHCI_HCD=y
+CONFIG_USB_OHCI_HCD=y
+CONFIG_USB_UHCI_HCD=y
+CONFIG_USB_HID=y
+
+# Audio: current VMware virtual HDA plus ES1371 compatibility fallback.
+CONFIG_SOUND=y
+CONFIG_SND=y
+CONFIG_SND_PCI=y
+CONFIG_SND_HDA=y
+CONFIG_SND_HDA_INTEL=y
+CONFIG_SND_ENS1371=y
+
+# Installer media / filesystems.
+CONFIG_BLK_DEV_SR=y
+CONFIG_ISO9660_FS=y
+CONFIG_UDF_FS=y
