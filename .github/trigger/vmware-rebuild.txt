@@ -1,0 +1,4 @@
+trigger=vmware-rebuild
+source_branch=rebuild-vmware-from-zero-20260921
+goal=android17-x86_64-vmware
+requested_utc=2026-09-21T09:00:00Z
