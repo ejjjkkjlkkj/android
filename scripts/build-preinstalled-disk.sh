@@ -156,6 +156,15 @@ sgdisk \
   -n 13:0:+"${VM_MISC_SIZE_MIB}M" -t 13:8300 -c 13:"$VM_GPT_LABEL_MISC" \
   -n 14:0:+"${VM_USERDATA_SIZE_MIB}M" -t 14:8300 -c 14:"$VM_GPT_LABEL_USERDATA" \
   "$RAW_DISK" >/dev/null
+# Give boot_a a deterministic PARTUUID. Android ueventd prefers
+# androidboot.boot_part_uuid over hypervisor-specific PCI boot-device paths.
+sgdisk --partition-guid=3:"$ANDROID_BOOT_PART_UUID" "$RAW_DISK" >/dev/null
+actual_boot_part_uuid="$(sgdisk -i 3 "$RAW_DISK" | awk -F': ' '/Partition unique GUID/ {print tolower($2)}')"
+[[ "$actual_boot_part_uuid" == "${ANDROID_BOOT_PART_UUID,,}" ]] || {
+  echo "ERROR: boot_a PARTUUID mismatch: $actual_boot_part_uuid" >&2
+  exit 8
+}
+
 sgdisk -v "$RAW_DISK"
 
 LOOP_DEV="$("${SUDO[@]}" losetup --find --show --partscan "$RAW_DISK")"
