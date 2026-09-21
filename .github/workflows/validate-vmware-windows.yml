@@ -3,15 +3,9 @@ name: AccessibleAndroid VMware final gate
 on:
   workflow_run:
     workflows:
-      - AccessibleAndroid recovery and resume
+      - "AccessibleAndroid recovery and resume"
     types:
       - completed
-  workflow_dispatch:
-    inputs:
-      source_run_id:
-        description: GitHub run ID containing the AccessibleAndroid VMware VMDK artifact
-        required: true
-        type: string
 
 permissions:
   actions: read
@@ -24,13 +18,11 @@ concurrency:
 jobs:
   vmware:
     name: Prove Android partitions and framework boot in VMware Workstation
-    if: >-
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event.workflow_run.conclusion == 'success')
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 45
     env:
-      SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
       GH_TOKEN: ${{ github.token }}
 
     steps:
