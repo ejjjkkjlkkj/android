@@ -281,3 +281,15 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload VMware VMDK
+        if: success()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: AccessibleAndroid-17-VMware-${{ github.run_id }}
+          path: |
+            .work/vm/preinstalled/AccessibleAndroid-17-accessible_android_x86_64-x86_64.vmdk
+            .work/vm/preinstalled/SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
