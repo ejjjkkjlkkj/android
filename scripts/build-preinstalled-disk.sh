@@ -40,8 +40,8 @@ PRODUCT=$PRODUCT
 DISK_SIZE_MIB=$DISK_SIZE_MIB
 FIXED_PARTITION_MIB=$FIXED_PARTITION_MIB
 FREE_AFTER_FIXED_MIB=$((DISK_SIZE_MIB - FIXED_PARTITION_MIB - GEOMETRY_RESERVE_MIB))
-ANDROID_BOOT_DEVICES=$ANDROID_BOOT_DEVICES
-VM_OS_DISK_PCI_ADDR=$VM_OS_DISK_PCI_ADDR
+BOOT_DEVICE_BINDING=androidboot.boot_part_uuid
+QEMU_REFERENCE_PCI_ADDR=$VM_OS_DISK_PCI_ADDR
 
 PARTITIONS:
 1  $VM_GPT_LABEL_BIOS_GRUB ${VM_BIOS_GRUB_SIZE_MIB}MiB EF02
@@ -158,6 +158,16 @@ sgdisk \
   "$RAW_DISK" >/dev/null
 sgdisk -v "$RAW_DISK"
 
+# Android recommends binding the boot device by partition UUID rather than a
+# hypervisor-specific sysfs/PCI path. Partition 3 is boot_a and lives on the
+# same physical virtual disk as super/userdata.
+BOOT_PART_UUID="$(sgdisk -i 3 "$RAW_DISK" | awk -F': ' '/Partition unique GUID/ {print tolower($2)}')"
+[[ "$BOOT_PART_UUID" =~ ^[0-9a-f-]{36}$ ]] || {
+  echo "ERROR: failed to resolve boot_a PARTUUID" >&2
+  exit 8
+}
+echo "ANDROID_BOOT_PART_UUID = $BOOT_PART_UUID"
+
 LOOP_DEV="$("${SUDO[@]}" losetup --find --show --partscan "$RAW_DISK")"
 [[ -b "$LOOP_DEV" ]] || {
   echo "ERROR: failed to attach raw image to a loop device" >&2
@@ -263,7 +273,7 @@ ESP_MOUNTED=1
 "${SUDO[@]}" install -m 0644 "$GRUB_ASSETS/kernel" "$ESP_MOUNT/android/kernel"
 "${SUDO[@]}" install -m 0644 "$GRUB_ASSETS/android-initrd.img" "$ESP_MOUNT/android/android-initrd.img"
 
-ANDROID_CMDLINE="$(tr '\n' ' ' < "$GRUB_ASSETS/kernel-cmdline.txt" | sed 's/[[:space:]]*$//')"
+ANDROID_CMDLINE="$(tr '\n' ' ' < "$GRUB_ASSETS/kernel-cmdline.txt" | sed 's/[[:space:]]*$//') androidboot.boot_part_uuid=$BOOT_PART_UUID"
 GRUB_CFG="$WORK_DIR/grub.cfg"
 cat > "$GRUB_CFG" <<EOF
 set timeout=0
@@ -375,8 +385,8 @@ fi
   echo "product=$PRODUCT"
   echo "android_api=37"
   echo "disk_size_gib=$VM_DISK_SIZE_GIB"
-  echo "android_boot_devices=$ANDROID_BOOT_DEVICES"
-  echo "os_disk_pci_addr=$VM_OS_DISK_PCI_ADDR"
+  echo "android_boot_part_uuid=$BOOT_PART_UUID"
+  echo "boot_device_binding=partuuid"
   echo "bios_grub=installed"
   echo "uefi_grub=installed"
   echo "slot=a"
@@ -414,5 +424,5 @@ if [[ "$EXPORT_ALL_FORMATS" == "1" ]]; then
 fi
 echo "BIOS_GRUB = PASS"
 echo "UEFI_GRUB = PASS"
-echo "ANDROID_BOOT_DEVICES = $ANDROID_BOOT_DEVICES"
+echo "ANDROID_BOOT_PART_UUID = $BOOT_PART_UUID"
 cat "$DISK_DIR/SHA256SUMS"
