@@ -187,7 +187,11 @@ jobs:
           test "$VM_BIOS_GRUB_SIZE_MIB" -ge 1
           test "$VM_OS_DISK_PCI_ADDR" = "0x6"
           test "$ANDROID_BOOT_DEVICES" = "pci0000:00/0000:00:06.0"
+          test "$ANDROID_BOOT_PART_UUID" = "9fa8e413-1ef6-5f47-b69e-b16246fdaa86"
           grep -Fq 'androidboot.boot_devices=pci0000:00/0000:00:06.0' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'androidboot.boot_part_uuid=9fa8e413-1ef6-5f47-b69e-b16246fdaa86' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'androidboot.boot_part_uuid=$ANDROID_BOOT_PART_UUID' scripts/prepare-android-grub-boot.sh
+          grep -Fq 'partition-guid=3:"$ANDROID_BOOT_PART_UUID"' scripts/build-preinstalled-disk.sh
           grep -Fq 'virtio-blk-pci,drive=$VM_OS_DISK_ID,bus=pcie.0,addr=$VM_OS_DISK_PCI_ADDR' scripts/test-preinstalled-disk-qemu.sh
           grep -Fq 'ACCESSIBLE_ANDROID_POST_FS_DATA=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
           grep -Fq 'ACCESSIBLE_ANDROID_FRAMEWORK_BOOT=PASS' device/accessibledroid/accessible_x86_64/init.accessibledroid.rc
@@ -219,5 +223,10 @@ jobs:
           grep -Fq 'virtio-gpu.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio_input.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
           grep -Fq 'virtio_snd.ko' device/accessibledroid/accessible_x86_64/BoardConfig.mk
+          grep -Fq 'VMWARE_ANDROID_PARTITIONS = PASS' scripts/test-vmware-windows.ps1
+          grep -Fq 'VMWARE_ANDROID_FRAMEWORK_BOOT = PASS' scripts/test-vmware-windows.ps1
+          grep -Fq 'sata0:0.fileName' scripts/test-vmware-windows.ps1
+          grep -Fq 'AccessibleAndroid recovery and resume' .github/workflows/validate-vmware-windows.yml
+          grep -Fq 'AccessibleAndroid-17-VMware-' .github/workflows/validate-vmware-windows.yml
           PLAN_ONLY=1 bash scripts/build-preinstalled-disk.sh
           echo 'PREINSTALLED_DISK_CONTRACT = PASS'
